@@ -46,12 +46,8 @@ impl BackendChoice {
 }
 
 fn find_claude_cli() -> Result<Backend> {
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let home_local = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/bin"));
-    std::env::split_paths(&path)
-        .chain(home_local)
-        .map(|dir| dir.join("claude"))
-        .find(|p| p.is_file())
+    let home_local: Vec<PathBuf> = crate::platform::home_dir().map(|h| h.join(".local").join("bin")).into_iter().collect();
+    crate::platform::find_program("claude", &home_local)
         .map(|program| Backend::Cli { program })
         .context("`claude` 명령을 찾을 수 없습니다. Claude Code를 설치해 로그인하거나 ANTHROPIC_API_KEY를 설정하세요.")
 }

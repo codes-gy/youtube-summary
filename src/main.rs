@@ -5,6 +5,7 @@ mod frames;
 mod lang;
 mod media;
 mod pipeline;
+mod platform;
 mod render;
 mod source;
 mod summarize;

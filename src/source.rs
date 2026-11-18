@@ -25,7 +25,7 @@ impl Source {
         let arg = arg.trim();
         let path = Path::new(arg);
         if path.is_file() {
-            return Ok(Source::LocalFile { path: path.canonicalize()? });
+            return Ok(Source::LocalFile { path: std::path::absolute(path)? });
         }
         if let Some(source) = Source::parse_youtube(arg) {
             return Ok(source);
@@ -102,7 +102,7 @@ mod tests {
         let file = dir.path().join("JdgjWfve1DY");
         std::fs::write(&file, b"x").unwrap();
         let parsed = Source::parse(file.to_str().unwrap()).unwrap();
-        assert_eq!(parsed, Source::LocalFile { path: file.canonicalize().unwrap() });
+        assert_eq!(parsed, Source::LocalFile { path: std::path::absolute(&file).unwrap() });
         assert!(Source::parse(dir.path().to_str().unwrap()).unwrap_err().to_string().contains("폴더"));
     }
 }

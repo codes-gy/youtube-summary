@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -9,6 +9,7 @@ use serde_json::json;
 
 use crate::domain::{Section, Summary, Transcript, VideoMeta, clock};
 use crate::lang::LangCode;
+use crate::platform;
 
 const TEMPLATE: &str = include_str!("../templates/document.html");
 
@@ -53,35 +54,9 @@ pub fn render_html(doc: &Document) -> Result<String> {
     Ok(html)
 }
 
-const CHROME_CANDIDATES: &[&str] = &[
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    "google-chrome",
-    "google-chrome-stable",
-    "chromium",
-    "chromium-browser",
-];
-
-pub fn find_chrome() -> Result<PathBuf> {
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    CHROME_CANDIDATES
-        .iter()
-        .flat_map(|c| {
-            let c = Path::new(c);
-            if c.is_absolute() {
-                vec![c.to_path_buf()]
-            } else {
-                std::env::split_paths(&path).map(|dir| dir.join(c)).collect()
-            }
-        })
-        .find(|p| p.is_file())
-        .context("PDF를 만들려면 Google Chrome이나 Chromium이 필요합니다.")
-}
-
 /// Print the HTML file to an A4 PDF with headless Chrome.
 pub fn html_to_pdf(html: &Path, pdf: &Path) -> Result<()> {
-    let chrome = find_chrome()?;
+    let chrome = platform::find_chrome().context("PDF를 만들려면 Google Chrome, Chromium, Microsoft Edge 중 하나가 필요합니다.")?;
     let profile = tempfile::tempdir()?;
     if let Some(dir) = pdf.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir)?;
@@ -94,7 +69,7 @@ pub fn html_to_pdf(html: &Path, pdf: &Path) -> Result<()> {
         .args(["--headless", "--disable-gpu", "--no-pdf-header-footer", "--allow-file-access-from-files"])
         .arg(format!("--user-data-dir={}", profile.path().display()))
         .arg(format!("--print-to-pdf={}", tmp.display()))
-        .arg(file_url(&html_abs))
+        .arg(platform::file_url(&html_abs))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(std::fs::File::create(profile.path().join("stderr.log"))?)
@@ -117,17 +92,4 @@ pub fn html_to_pdf(html: &Path, pdf: &Path) -> Result<()> {
     }
     std::fs::rename(&tmp, pdf)?;
     Ok(())
-}
-
-/// `file://` URL with every byte outside the unreserved set percent-encoded.
-fn file_url(path: &Path) -> String {
-    let mut url = String::from("file://");
-    for b in path.to_string_lossy().bytes() {
-        if b.is_ascii_alphanumeric() || b"/-._~".contains(&b) {
-            url.push(b as char);
-        } else {
-            url.push_str(&format!("%{b:02X}"));
-        }
-    }
-    url
 }
