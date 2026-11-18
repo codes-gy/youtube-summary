@@ -37,12 +37,22 @@ fn fetch(url: &str, dest: &Path, what: &str, on_progress: &dyn Fn(String)) -> Re
         return Ok(dest.to_path_buf());
     }
     fs::create_dir_all(dest.parent().unwrap())?;
-    let mut response = reqwest::blocking::Client::builder()
-        .timeout(None)
-        .build()?
-        .get(url)
-        .send()
-        .with_context(|| format!("{what} 모델을 내려받지 못했습니다"))?;
+    let client = reqwest::blocking::Client::builder().timeout(None).build()?;
+    // Hugging Face answers 502/503 now and then; a few seconds later it works.
+    let mut attempt = 0;
+    let mut response = loop {
+        attempt += 1;
+        let result = client.get(url).send();
+        let transient = match &result {
+            Ok(r) => r.status().is_server_error(),
+            Err(e) => e.is_connect() || e.is_timeout(),
+        };
+        if !transient || attempt == 4 {
+            break result.with_context(|| format!("{what} 모델을 내려받지 못했습니다"))?;
+        }
+        on_progress(format!("{what} 모델 서버가 응답하지 않아 다시 시도합니다 ({attempt}/3)"));
+        std::thread::sleep(std::time::Duration::from_secs(2 * attempt));
+    };
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         bail!("{what} 모델이 없습니다. tiny, base, small, medium, large-v3, large-v3-turbo 중에서 고르세요.");
     }
@@ -134,4 +144,34 @@ pub fn transcribe(samples: &[f32], model: &Path, on_progress: &dyn Fn(String)) -
         })
         .collect();
     Ok(Transcript { language, segments })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+
+    #[test]
+    fn download_retries_a_flaky_server() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/model.bin", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for status in ["502 Bad Gateway", "503 Service Unavailable", "200 OK"] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap() > 2 {
+                    line.clear();
+                }
+                let body = if status.starts_with("200") { "model" } else { "" };
+                write!(stream, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("model.bin");
+        fetch(&url, &dest, "test", &|_| {}).unwrap();
+        server.join().unwrap();
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "model");
+    }
 }
