@@ -85,6 +85,7 @@ pub fn serve(port: u16, defaults: Options) -> Result<()> {
             .route("/api/jobs", post(create_job).layer(DefaultBodyLimit::disable()))
             .route("/api/jobs/{id}", get(job_status))
             .route("/api/jobs/{id}/pdf", get(job_pdf))
+            .layer(axum::middleware::from_fn_with_state(app.clone(), local_host_only))
             .with_state(app);
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let listener = tokio::net::TcpListener::bind(addr)
@@ -190,6 +191,26 @@ fn same_origin(headers: &HeaderMap, port: u16) -> bool {
         None => true,
         Some(origin) => [format!("http://127.0.0.1:{port}"), format!("http://localhost:{port}")].contains(&origin.to_string()),
     }
+}
+
+/// A website whose domain re-resolves to 127.0.0.1 (DNS rebinding) reaches this server
+/// with its own name in `Host`; only our own names may read jobs and PDFs.
+fn local_host(headers: &HeaderMap, port: u16) -> bool {
+    headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .is_some_and(|host| [format!("127.0.0.1:{port}"), format!("localhost:{port}")].iter().any(|ok| ok == host))
+}
+
+async fn local_host_only(
+    State(app): State<Arc<App>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if !local_host(request.headers(), app.port) {
+        return (StatusCode::FORBIDDEN, "ytdoc은 http://127.0.0.1 주소로만 엽니다.").into_response();
+    }
+    next.run(request).await
 }
 
 async fn create_job(State(app): State<Arc<App>>, headers: HeaderMap, mut form: Multipart) -> Response {
@@ -384,5 +405,15 @@ mod tests {
         assert!(same_origin(&headers, 8000));
         headers.insert(header::ORIGIN, HeaderValue::from_static("https://evil.example"));
         assert!(!same_origin(&headers, 8000));
+    }
+
+    #[test]
+    fn only_local_host_names_are_served() {
+        let mut headers = HeaderMap::new();
+        assert!(!local_host(&headers, 8000));
+        for (host, ok) in [("127.0.0.1:8000", true), ("localhost:8000", true), ("evil.example:8000", false), ("127.0.0.1:9000", false)] {
+            headers.insert(header::HOST, HeaderValue::from_static(host));
+            assert_eq!(local_host(&headers, 8000), ok, "{host}");
+        }
     }
 }
