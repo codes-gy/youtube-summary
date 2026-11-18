@@ -25,20 +25,41 @@ PDF에 들어가는 내용은 다음과 같습니다.
 
 ## 준비물
 
-- [Rust](https://rustup.rs/) 1.85 이상 (빌드할 때만 필요)
-- [cmake](https://cmake.org/): whisper.cpp를 빌드할 때 필요합니다.
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-- [ffmpeg](https://ffmpeg.org/)
+macOS, Linux, Windows에서 쓸 수 있습니다. 필요한 프로그램은 다음과 같습니다.
+
+- 빌드할 때만 필요: [Rust](https://rustup.rs/), [CMake](https://cmake.org/), C/C++ 컴파일러, LLVM(clang). whisper.cpp를 함께 빌드하기 때문입니다.
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp): YouTube 영상을 받습니다. 내 컴퓨터의 파일만 쓴다면 필요 없습니다.
 - [deno](https://deno.com/): yt-dlp가 YouTube 영상을 받을 때 필요한 JavaScript 실행기입니다. 없으면 `HTTP Error 403`으로 내려받기가 실패합니다.
-- Google Chrome (또는 Chromium, Microsoft Edge)
+- [ffmpeg](https://ffmpeg.org/)
+- Google Chrome, Chromium, Microsoft Edge 중 하나
 - 요약에 쓸 Claude: 아래 [요약 방식 고르기](#요약-방식-고르기) 참고
 
-macOS에서는 Homebrew로 설치합니다.
+### macOS
 
 ```sh
-brew install rustup cmake yt-dlp ffmpeg deno
+xcode-select --install
+brew install rustup cmake yt-dlp deno ffmpeg
 rustup-init
 ```
+
+### Windows
+
+[Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)를 설치하고 **C++를 사용한 데스크톱 개발**을 고릅니다. 그다음 PowerShell에서 실행합니다.
+
+```powershell
+winget install Rustlang.Rustup Kitware.CMake LLVM.LLVM yt-dlp.yt-dlp DenoLand.Deno Gyan.FFmpeg
+```
+
+설치한 뒤 PowerShell을 새로 열어야 명령을 찾을 수 있습니다. Windows에는 Microsoft Edge가 기본으로 있어서 Chrome이 없어도 됩니다.
+
+### Linux (Ubuntu, Debian)
+
+```sh
+sudo apt install build-essential cmake clang ffmpeg
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+yt-dlp는 배포판 패키지가 오래된 경우가 많으니 [yt-dlp 설치 안내](https://github.com/yt-dlp/yt-dlp/wiki/Installation)를 따르고, [deno](https://docs.deno.com/runtime/getting_started/installation/)와 Chrome(또는 Chromium)도 설치합니다.
 
 ## 설치
 
@@ -48,9 +69,9 @@ rustup-init
 cargo install --path .
 ```
 
-`ytdoc` 명령이 `~/.cargo/bin/`에 설치됩니다. 처음 빌드는 whisper.cpp까지 컴파일하므로 몇 분 걸립니다.
+`ytdoc` 명령이 `~/.cargo/bin/`(Windows는 `%USERPROFILE%\.cargo\bin\`)에 설치됩니다. 처음 빌드는 whisper.cpp까지 컴파일하므로 몇 분 걸립니다.
 
-Whisper 모델 파일은 처음 받아쓰기를 할 때 `~/.cache/ytdoc/models/`에 내려받습니다. 기본 모델 `large-v3-turbo`는 약 1.6GB입니다.
+Whisper 모델 파일은 처음 받아쓰기를 할 때 홈 폴더의 `.cache/ytdoc/models/`에 내려받습니다. 기본 모델 `large-v3-turbo`는 약 1.6GB입니다. 받아쓰기는 Apple Silicon Mac에서는 GPU(Metal)를, 다른 컴퓨터에서는 CPU를 씁니다. 그래서 Mac이 아닌 컴퓨터에서는 더 오래 걸릴 수 있습니다. 느리면 `--whisper-model small`을 써 보세요.
 
 ## 웹 화면으로 쓰기
 
@@ -147,6 +168,8 @@ Apple M1에서 6분 10초짜리 한국어 영상([예시](examples/))을 처리�
 
 ```sh
 cargo test
+# ffmpeg, Whisper, Chrome을 실제로 돌리는 테스트까지 (tiny 모델을 내려받습니다)
+cargo test -- --include-ignored
 cargo run -- "https://youtu.be/영상ID"
 ```
 
