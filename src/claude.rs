@@ -332,4 +332,27 @@ pub mod tests {
         assert_eq!(cli_reply_text(r#"{"result":"{\"a\":2}"}"#).unwrap(), r#"{"a":2}"#);
         assert!(cli_reply_text(r#"{"is_error":true,"result":"no login"}"#).is_err());
     }
+
+    /// On Windows `claude` may be a batch file, which cannot take multi-line arguments.
+    #[test]
+    fn cli_backend_works_with_a_multi_line_system_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = if cfg!(windows) {
+            let p = dir.path().join("claude.cmd");
+            std::fs::write(&p, "@echo off\r\nmore > nul\r\necho {\"structured_output\":{\"ok\":true}}\r\n").unwrap();
+            p
+        } else {
+            let p = dir.path().join("claude");
+            std::fs::write(&p, "#!/bin/sh\ncat > /dev/null\necho '{\"structured_output\":{\"ok\":true}}'\n").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            p
+        };
+        let schema = serde_json::json!({ "type": "object", "properties": { "ok": { "type": "boolean" } } });
+        let reply = complete_cli(&program, "first line\nsecond line with \"quotes\" and 100%", "prompt\nbody", &schema).unwrap();
+        assert_eq!(reply, r#"{"ok":true}"#);
+    }
 }
