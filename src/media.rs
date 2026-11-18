@@ -18,7 +18,7 @@ pub fn run(cmd: &mut Command) -> Result<Output> {
     let program = cmd.get_program().to_string_lossy().into_owned();
     match cmd.stdin(Stdio::null()).output() {
         Ok(out) => Ok(out),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!("{program}이(가) 필요합니다. macOS: brew install {program}"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!("{program}이(가) 필요합니다. {}", crate::platform::install_hint(&program)),
         Err(e) => Err(e).with_context(|| format!("{program} 실행 실패")),
     }
 }
@@ -65,7 +65,7 @@ pub fn download_youtube(id: &str, work: &Path, on_progress: &dyn Fn(String)) -> 
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => anyhow::anyhow!("yt-dlp가 필요합니다. macOS: brew install yt-dlp deno"),
+            std::io::ErrorKind::NotFound => anyhow::anyhow!("yt-dlp가 필요합니다. {}", crate::platform::install_hint("yt-dlp")),
             _ => anyhow::Error::new(e).context("yt-dlp 실행 실패"),
         })?;
     let mut stderr = child.stderr.take().expect("piped stderr");

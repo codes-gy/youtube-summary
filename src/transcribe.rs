@@ -28,8 +28,7 @@ fn models_dir() -> Result<PathBuf> {
     if let Some(dir) = std::env::var_os("YTDOC_MODEL_DIR") {
         return Ok(PathBuf::from(dir));
     }
-    let home = std::env::var_os("HOME").context("HOME 환경 변수가 없습니다")?;
-    Ok(PathBuf::from(home).join(".cache/ytdoc/models"))
+    Ok(crate::platform::home_dir()?.join(".cache").join("ytdoc").join("models"))
 }
 
 /// Download `url` to `dest` once, via a `.part` file so an interrupted download is never mistaken for a model.

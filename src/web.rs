@@ -262,7 +262,7 @@ async fn save_upload(mut field: axum::extract::multipart::Field<'_>, dir: &Path)
     let name = field
         .file_name()
         .and_then(|n| Path::new(n).file_name())
-        .map(|n| n.to_string_lossy().replace(['/', '\\'], "_"))
+        .map(|n| n.to_string_lossy().replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_"))
         .filter(|n| !n.is_empty() && !n.starts_with('.'))
         .unwrap_or_else(|| "upload.mp4".into());
     tokio::fs::create_dir_all(dir).await?;
@@ -275,7 +275,7 @@ async fn save_upload(mut field: axum::extract::multipart::Field<'_>, dir: &Path)
     }
     file.flush().await?;
     anyhow::ensure!(size > 0, "빈 파일입니다");
-    Ok(path.canonicalize()?)
+    Ok(std::path::absolute(&path)?)
 }
 
 async fn job_status(State(app): State<Arc<App>>, UrlPath(id): UrlPath<u64>) -> Response {

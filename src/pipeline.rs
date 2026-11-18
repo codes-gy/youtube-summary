@@ -211,3 +211,49 @@ fn default_pdf_name(meta: &VideoMeta) -> String {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+
+    use crate::{frames, media, render, transcribe};
+
+    /// Runs the outside tools every OS must have: ffmpeg/ffprobe, whisper.cpp and Chrome.
+    /// Downloads the small `tiny` Whisper model, so CI runs it with `--include-ignored`.
+    #[test]
+    #[ignore = "needs ffmpeg, Chrome and network"]
+    fn local_tools_work_on_this_os() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("입력 영상.mp4");
+        let status = Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=4:size=320x240:rate=10"])
+            .args(["-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-shortest", "-pix_fmt", "yuv420p"])
+            .arg(&input)
+            .status()
+            .expect("ffmpeg runs");
+        assert!(status.success(), "ffmpeg made the test video");
+
+        let work = dir.path().join("work");
+        let meta = media::ingest_local(&input, &work).unwrap();
+        assert!(meta.has_video && meta.duration > 3.0, "ffprobe read the video: {meta:?}");
+
+        let video = media::video_path(&work).unwrap();
+        let wav = work.join("audio.wav");
+        media::extract_audio(&video, &wav).unwrap();
+        let samples = media::read_wav(&wav).unwrap();
+        assert!(samples.len() > 3 * media::SAMPLE_RATE as usize, "audio is about 4 seconds long");
+
+        let picked = frames::extract(&video, &work).unwrap();
+        assert!(!picked.is_empty(), "ffmpeg picked at least one frame");
+        assert!(work.join(&picked[0].path).is_file(), "frame file exists");
+
+        let model = transcribe::model_file("tiny", &|_| {}).unwrap();
+        transcribe::transcribe(&samples, &model, &|_| {}).unwrap();
+
+        let html = work.join("문서.html");
+        std::fs::write(&html, format!("<html><body><h1>테스트</h1><img src=\"{}\"></body></html>", picked[0].path)).unwrap();
+        let pdf = dir.path().join("출력 폴더").join("결과.pdf");
+        render::html_to_pdf(&html, &pdf).unwrap();
+        assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"), "Chrome wrote a PDF");
+    }
+}
