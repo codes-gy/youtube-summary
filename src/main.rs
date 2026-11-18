@@ -16,7 +16,7 @@ mod web;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -103,7 +103,7 @@ fn main() {
 
 fn run_cli(arg: &str, opts: Options) -> anyhow::Result<()> {
     let source = Source::parse(arg)?;
-    let printer = Printer { tty: std::io::stderr().is_terminal(), rows: Mutex::new(vec![]) };
+    let printer = Printer { tty: std::io::stderr().is_terminal(), began: Instant::now(), rows: Mutex::new(vec![]) };
     let done = run_pipeline(&source, &opts, &printer)?;
     printer.report();
     let pdf = std::path::absolute(&done.pdf).unwrap_or(done.pdf);
@@ -113,6 +113,7 @@ fn run_cli(arg: &str, opts: Options) -> anyhow::Result<()> {
 
 struct Printer {
     tty: bool,
+    began: Instant,
     rows: Mutex<Vec<(Stage, Duration, Outcome)>>,
 }
 
@@ -132,7 +133,7 @@ impl Progress for Printer {
                     Outcome::Skipped => "건너뜀",
                 };
                 let clear = if self.tty { "\r\x1b[2K" } else { "" };
-                writeln!(err, "{clear}  {word} ({:.1}s)", elapsed.as_secs_f64())
+                writeln!(err, "{clear}  {} {word} ({:.1}s)", stage.label(), elapsed.as_secs_f64())
             }
         };
     }
@@ -150,7 +151,7 @@ impl Printer {
             };
             eprintln!("  {:<12} {:7.1}s{note}", format!("{stage:?}").to_lowercase(), elapsed.as_secs_f64());
         }
-        let total: f64 = rows.iter().map(|r| r.1.as_secs_f64()).sum();
-        eprintln!("  {:<12} {total:7.1}s", "total");
+        // Some stages overlap, so the total is wall-clock time, not their sum.
+        eprintln!("  {:<12} {:7.1}s", "total", self.began.elapsed().as_secs_f64());
     }
 }
