@@ -135,27 +135,33 @@ pub fn run_pipeline(source: &Source, opts: &Options, progress: &dyn Progress) ->
     let model_tag = Path::new(&opts.whisper_model)
         .file_stem()
         .map_or_else(|| opts.whisper_model.clone(), |s| s.to_string_lossy().into_owned());
-    let transcript: Transcript = stage(progress, Stage::Transcribe, || {
-        let (t, c) = cached(&work.join(format!("transcript.{model_tag}.json")), || {
-            let on = detail(Stage::Transcribe);
-            let model = transcribe::model_file(&opts.whisper_model, &on)?;
-            transcribe::transcribe(&media::read_wav(&wav)?, &model, &on)
-        })?;
-        Ok((t, outcome(c)))
+    // Whisper and ffmpeg each need only the video, so they run side by side.
+    let (transcript, frame_set) = std::thread::scope(|scope| {
+        let frames_job = scope.spawn(|| {
+            stage(progress, Stage::Frames, || {
+                if !meta.has_video {
+                    return Ok((FrameSet { frames: Vec::new() }, Outcome::Skipped));
+                }
+                let (f, c) = cached(&work.join("frames.json"), || Ok(FrameSet { frames: frames::extract(&video, &work)? }))?;
+                Ok((f, outcome(c)))
+            })
+        });
+        let transcript: Result<Transcript> = stage(progress, Stage::Transcribe, || {
+            let (t, c) = cached(&work.join(format!("transcript.{model_tag}.json")), || {
+                let on = detail(Stage::Transcribe);
+                let model = transcribe::model_file(&opts.whisper_model, &on)?;
+                transcribe::transcribe(&media::read_wav(&wav)?, &model, &on)
+            })?;
+            Ok((t, outcome(c)))
+        });
+        let frame_set: Result<FrameSet> = frames_job.join().expect("frames thread panicked");
+        anyhow::Ok((transcript?, frame_set?))
     })?;
     anyhow::ensure!(!transcript.segments.is_empty(), "영상에서 말소리를 찾지 못해 요약할 내용이 없습니다.");
 
-    let frame_set: FrameSet = stage(progress, Stage::Frames, || {
-        if !meta.has_video {
-            return Ok((FrameSet { frames: Vec::new() }, Outcome::Skipped));
-        }
-        let (f, c) = cached(&work.join("frames.json"), || Ok(FrameSet { frames: frames::extract(&video, &work)? }))?;
-        Ok((f, outcome(c)))
-    })?;
-
     let spoken: Option<LangCode> = transcript.language.parse().ok();
     let target = opts.translate.clone().filter(|t| Some(t) != spoken.as_ref());
-    let backend = std::cell::OnceCell::new();
+    let backend = std::sync::OnceLock::new();
     let llm = || -> Result<&dyn Llm> {
         if let Some(b) = backend.get() {
             return Ok(b as &dyn Llm);
@@ -164,22 +170,28 @@ pub fn run_pipeline(source: &Source, opts: &Options, progress: &dyn Progress) ->
         Ok(backend.get_or_init(|| b) as &dyn Llm)
     };
 
-    let translation: Option<Transcript> = stage(progress, Stage::Translate, || match &target {
-        None => Ok((None, Outcome::Skipped)),
-        Some(lang) => {
-            let (t, c) = cached(&work.join(format!("translation.{lang}.{model_tag}.json")), || {
-                translate::translate(llm()?, &transcript, lang)
-            })?;
-            Ok((Some(t), outcome(c)))
-        }
-    })?;
-
+    // The summary reads the original transcript, so it need not wait for the translation.
     let out_lang: LangCode = target.clone().or(spoken.clone()).unwrap_or_else(|| "en".parse().unwrap());
-    let summary: Summary = stage(progress, Stage::Summarize, || {
-        let (s, c) = cached(&work.join(format!("summary.{out_lang}.{model_tag}.json")), || {
-            summarize::summarize(llm()?, &meta, &transcript, &out_lang)
-        })?;
-        Ok((s, outcome(c)))
+    let (translation, summary) = std::thread::scope(|scope| {
+        let translate_job = scope.spawn(|| {
+            stage(progress, Stage::Translate, || match &target {
+                None => Ok((None, Outcome::Skipped)),
+                Some(lang) => {
+                    let (t, c) = cached(&work.join(format!("translation.{lang}.{model_tag}.json")), || {
+                        translate::translate(llm()?, &transcript, lang)
+                    })?;
+                    Ok((Some(t), outcome(c)))
+                }
+            })
+        });
+        let summary: Result<Summary> = stage(progress, Stage::Summarize, || {
+            let (s, c) = cached(&work.join(format!("summary.{out_lang}.{model_tag}.json")), || {
+                summarize::summarize(llm()?, &meta, &transcript, &out_lang)
+            })?;
+            Ok((s, outcome(c)))
+        });
+        let translation: Result<Option<Transcript>> = translate_job.join().expect("translate thread panicked");
+        anyhow::Ok((translation?, summary?))
     })?;
 
     let pdf = opts.output.clone().unwrap_or_else(|| PathBuf::from(default_pdf_name(&meta)));
