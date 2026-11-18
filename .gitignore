@@ -1,0 +1,4 @@
+target/
+.ytdoc_cache/
+*.pdf
+!examples/*.pdf
