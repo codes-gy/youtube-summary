@@ -93,3 +93,35 @@ pub fn html_to_pdf(html: &Path, pdf: &Path) -> Result<()> {
     std::fs::rename(&tmp, pdf)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{Origin, Segment};
+
+    #[test]
+    fn video_text_cannot_inject_html() {
+        let evil = "<script>alert(1)</script><img src=x onerror=alert(1)>";
+        let meta = VideoMeta {
+            title: evil.into(),
+            channel: Some(evil.into()),
+            duration: 60.0,
+            upload_date: None,
+            origin: Origin::LocalFile { file_name: evil.into() },
+            has_video: false,
+        };
+        let summary = Summary {
+            title: evil.into(),
+            one_line: evil.into(),
+            overview: evil.into(),
+            key_points: vec![evil.into()],
+            chapters: vec![],
+        };
+        let transcript = Transcript { language: "ko".into(), segments: vec![Segment { start: 0.0, end: 1.0, text: evil.into() }] };
+        let lang = "ko".parse().unwrap();
+        let html = render_html(&Document { meta: &meta, summary: &summary, sections: &[], transcript: &transcript, lang: &lang, translated_from: None }).unwrap();
+        assert!(!html.contains("<script") && !html.contains("<img src=x"), "raw markup leaked into the page");
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("Content-Security-Policy"));
+    }
+}
