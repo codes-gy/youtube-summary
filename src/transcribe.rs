@@ -38,38 +38,50 @@ fn fetch(url: &str, dest: &Path, what: &str, on_progress: &dyn Fn(String)) -> Re
     }
     fs::create_dir_all(dest.parent().unwrap())?;
     let client = reqwest::blocking::Client::builder().timeout(None).build()?;
-    // Hugging Face answers 502/503 now and then; a few seconds later it works.
-    let mut attempt = 0;
-    let mut response = loop {
-        attempt += 1;
-        let result = client.get(url).send();
-        let transient = match &result {
-            Ok(r) => r.status().is_server_error(),
-            Err(e) => e.is_connect() || e.is_timeout(),
-        };
-        if !transient || attempt == 4 {
-            break result.with_context(|| format!("{what} 모델을 내려받지 못했습니다"))?;
+    let part = dest.with_extension("part");
+    // Hugging Face answers 5xx or drops the connection now and then; a little later it works.
+    for attempt in 1.. {
+        match download(&client, url, &part, what, on_progress) {
+            Ok(()) => break,
+            Err(Failure::Retry(err)) if attempt < 5 => {
+                on_progress(format!("{what} 모델 내려받기를 다시 시도합니다 ({attempt}/4): {err:#}"));
+                std::thread::sleep(std::time::Duration::from_secs(3 << (attempt - 1)));
+            }
+            Err(Failure::Retry(err) | Failure::Fatal(err)) => return Err(err),
         }
-        on_progress(format!("{what} 모델 서버가 응답하지 않아 다시 시도합니다 ({attempt}/3)"));
-        std::thread::sleep(std::time::Duration::from_secs(2 * attempt));
-    };
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        bail!("{what} 모델이 없습니다. tiny, base, small, medium, large-v3, large-v3-turbo 중에서 고르세요.");
     }
-    if !response.status().is_success() {
-        bail!("{what} 모델을 내려받지 못했습니다: HTTP {}", response.status());
+    fs::rename(&part, dest)?;
+    Ok(dest.to_path_buf())
+}
+
+enum Failure {
+    /// The server or the network hiccuped; the same request may work later.
+    Retry(anyhow::Error),
+    Fatal(anyhow::Error),
+}
+
+fn download(client: &reqwest::blocking::Client, url: &str, part: &Path, what: &str, on_progress: &dyn Fn(String)) -> Result<(), Failure> {
+    let retry = |e: anyhow::Error| Failure::Retry(e);
+    let fatal = |e: anyhow::Error| Failure::Fatal(e);
+    let mut response = client.get(url).send().with_context(|| format!("{what} 모델을 내려받지 못했습니다")).map_err(retry)?;
+    let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Err(fatal(anyhow::anyhow!("{what} 모델이 없습니다. tiny, base, small, medium, large-v3, large-v3-turbo 중에서 고르세요.")));
+    }
+    if !status.is_success() {
+        let err = anyhow::anyhow!("{what} 모델을 내려받지 못했습니다: HTTP {status}");
+        return Err(if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS { retry(err) } else { fatal(err) });
     }
     let total = response.content_length();
-    let part = dest.with_extension("part");
-    let mut out = fs::File::create(&part)?;
+    let mut out = fs::File::create(part).map_err(|e| fatal(e.into()))?;
     let mut buf = vec![0u8; 1 << 16];
     let (mut done, mut shown) = (0u64, u64::MAX);
     loop {
-        let n = response.read(&mut buf).with_context(|| format!("{what} 모델을 내려받다가 끊겼습니다"))?;
+        let n = response.read(&mut buf).with_context(|| format!("{what} 모델을 내려받다가 끊겼습니다")).map_err(retry)?;
         if n == 0 {
             break;
         }
-        out.write_all(&buf[..n])?;
+        out.write_all(&buf[..n]).map_err(|e| fatal(e.into()))?;
         done += n as u64;
         let mb = done >> 20;
         let pct = total.map(|t| done * 100 / t.max(1));
@@ -82,12 +94,11 @@ fn fetch(url: &str, dest: &Path, what: &str, on_progress: &dyn Fn(String)) -> Re
             });
         }
     }
-    out.sync_all()?;
+    out.sync_all().map_err(|e| fatal(e.into()))?;
     if total.is_some_and(|t| t != done) {
-        bail!("{what} 모델을 끝까지 받지 못했습니다. 다시 실행하세요.");
+        return Err(retry(anyhow::anyhow!("{what} 모델을 끝까지 받지 못했습니다")));
     }
-    fs::rename(&part, dest)?;
-    Ok(dest.to_path_buf())
+    Ok(())
 }
 
 /// Speech to text with whisper.cpp (Metal on Apple Silicon), language auto-detected,
@@ -153,19 +164,19 @@ mod tests {
     use std::net::TcpListener;
 
     #[test]
-    fn download_retries_a_flaky_server() {
+    fn download_retries_server_errors_and_cut_transfers() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}/model.bin", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
-            for status in ["502 Bad Gateway", "503 Service Unavailable", "200 OK"] {
+            // A 502, then a transfer cut off after 2 of 5 bytes, then the whole file.
+            for (status, length, body) in [("502 Bad Gateway", 0, ""), ("200 OK", 5, "mo"), ("200 OK", 5, "model")] {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut line = String::new();
                 while reader.read_line(&mut line).unwrap() > 2 {
                     line.clear();
                 }
-                let body = if status.starts_with("200") { "model" } else { "" };
-                write!(stream, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                write!(stream, "HTTP/1.1 {status}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n{body}").unwrap();
             }
         });
         let dir = tempfile::tempdir().unwrap();
