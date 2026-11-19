@@ -261,7 +261,8 @@ pub mod tests {
     }
 
     const GOOD: &str = r#"{"title":"T","one_line":"O","overview":"V","key_points":["k"],
-        "chapters":[{"start":0,"end":10,"title":"c","summary":"s","key_points":["p"]}]}"#;
+        "chapters":[{"start":0,"end":10,"title":"c","summary":"s","key_points":["p"]}],
+        "concepts":[{"name":"a","meaning":"m"}],"relations":[],"comparisons":[]}"#;
 
     fn ask_summary(llm: &Scripted) -> Result<Summary> {
         ask(llm, "sys", "prompt", Summary::check)
@@ -272,7 +273,7 @@ pub mod tests {
         let schema = schema_for::<Summary>();
         assert_eq!(schema["type"], "object");
         assert_eq!(schema["additionalProperties"], false);
-        assert_eq!(schema["required"].as_array().unwrap().len(), 5);
+        assert_eq!(schema["required"].as_array().unwrap().len(), 8);
         let chapter = &schema["properties"]["chapters"]["items"];
         assert_eq!(chapter["additionalProperties"], false);
         assert_eq!(chapter["required"].as_array().unwrap().len(), 5);

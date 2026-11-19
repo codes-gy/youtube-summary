@@ -72,6 +72,9 @@ pub struct Labels {
     pub key_points: &'static str,
     pub transcript: &'static str,
     pub translated_from: &'static str,
+    pub concept_map: &'static str,
+    pub comparison: &'static str,
+    pub glossary: &'static str,
 }
 
 /// The languages the web page offers, in its dropdown order.
@@ -95,6 +98,9 @@ pub const LANGUAGES: &[Language] = &[
             key_points: "핵심 포인트",
             transcript: "부록: 전체 받아쓰기",
             translated_from: "번역 원문 언어",
+            concept_map: "개념 관계도",
+            comparison: "비교",
+            glossary: "용어 정리",
         },
     },
     Language {
@@ -116,6 +122,9 @@ pub const LANGUAGES: &[Language] = &[
             key_points: "Key points",
             transcript: "Appendix: full transcript",
             translated_from: "Translated from",
+            concept_map: "Concept map",
+            comparison: "Comparison",
+            glossary: "Glossary",
         },
     },
     Language {
@@ -137,6 +146,9 @@ pub const LANGUAGES: &[Language] = &[
             key_points: "要点",
             transcript: "付録: 全文書き起こし",
             translated_from: "翻訳元の言語",
+            concept_map: "概念マップ",
+            comparison: "比較",
+            glossary: "用語集",
         },
     },
     Language {
@@ -158,6 +170,9 @@ pub const LANGUAGES: &[Language] = &[
             key_points: "要点",
             transcript: "附录：完整文字记录",
             translated_from: "原文语言",
+            concept_map: "概念图",
+            comparison: "对比",
+            glossary: "术语表",
         },
     },
     Language {
@@ -179,6 +194,9 @@ pub const LANGUAGES: &[Language] = &[
             key_points: "Puntos clave",
             transcript: "Apéndice: transcripción completa",
             translated_from: "Traducido del",
+            concept_map: "Mapa de conceptos",
+            comparison: "Comparación",
+            glossary: "Glosario",
         },
     },
     Language {
@@ -200,6 +218,9 @@ pub const LANGUAGES: &[Language] = &[
             key_points: "Points clés",
             transcript: "Annexe : transcription complète",
             translated_from: "Traduit de",
+            concept_map: "Carte des concepts",
+            comparison: "Comparaison",
+            glossary: "Glossaire",
         },
     },
     Language {
@@ -221,6 +242,9 @@ pub const LANGUAGES: &[Language] = &[
             key_points: "Kernpunkte",
             transcript: "Anhang: vollständiges Transkript",
             translated_from: "Übersetzt aus",
+            concept_map: "Begriffskarte",
+            comparison: "Vergleich",
+            glossary: "Glossar",
         },
     },
     Language {
@@ -242,6 +266,9 @@ pub const LANGUAGES: &[Language] = &[
             key_points: "Ý chính",
             transcript: "Phụ lục: toàn bộ lời thoại",
             translated_from: "Dịch từ",
+            concept_map: "Sơ đồ khái niệm",
+            comparison: "So sánh",
+            glossary: "Thuật ngữ",
         },
     },
 ];

@@ -10,6 +10,8 @@ const SYSTEM_PROMPT: &str = "You turn video transcripts into concise, well-struc
 Write every human-readable field in {language}, even when the transcript is in another language.
 Split the video into 3-8 consecutive chapters that follow topic changes. Chapter times are in seconds,
 taken from the transcript timestamps; together the chapters cover the video from start to end without gaps.
+List the key terms as concepts and connect them with relations, so a reader sees how the ideas fit together;
+every relation must use concept names exactly. Add a comparison table only when the video compares things.
 Be faithful to what is said. Do not invent facts that are not in the transcript.";
 
 pub fn summarize(llm: &dyn Llm, meta: &VideoMeta, transcript: &Transcript, lang: &LangCode) -> Result<Summary> {

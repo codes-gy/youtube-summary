@@ -68,8 +68,12 @@ pub fn write_note(doc: &Document, work: &Path, vault: &Path) -> Result<PathBuf> 
         std::fs::create_dir_all(dest.parent().unwrap())?;
         std::fs::copy(work.join(&frame.path), &dest).with_context(|| format!("{} 복사 실패", dest.display()))?;
     }
-    let note = note_path(&vault.join(FOLDER), &doc.summary.title, &key);
+    let folder = vault.join(FOLDER);
+    let note = note_path(&folder, &doc.summary.title, &key);
     crate::cache::write_atomic(&note, markdown(doc, &key, &images).as_bytes())?;
+    for old in older_notes(&folder, &key, &note) {
+        std::fs::remove_file(&old).with_context(|| format!("{} 정리 실패", old.display()))?;
+    }
     Ok(note)
 }
 
@@ -80,9 +84,24 @@ fn file_name(path: &str) -> &str {
 /// `<title>.md`, unless a note by that name is about another video or isn't ours.
 fn note_path(folder: &Path, title: &str, key: &str) -> PathBuf {
     let title = safe_name(title);
-    let ours = |p: &Path| !p.exists() || std::fs::read_to_string(p).is_ok_and(|t| t.contains(&key_line(key)));
     let plain = folder.join(format!("{title}.md"));
-    if ours(&plain) { plain } else { folder.join(format!("{title} ({key}).md")) }
+    if !plain.exists() || is_note_for(&plain, key) { plain } else { folder.join(format!("{title} ({key}).md")) }
+}
+
+/// True when `path` is a note ytdoc wrote for `key`: the key is in its properties.
+fn is_note_for(path: &Path, key: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else { return false };
+    let Some(props) = text.strip_prefix("---\n").and_then(|rest| rest.split("\n---").next()) else { return false };
+    props.lines().any(|line| line == key_line(key))
+}
+
+/// Earlier notes for the same video under an old title, so a rerun leaves one note.
+fn older_notes(folder: &Path, key: &str, keep: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(folder) else { return vec![] };
+    entries
+        .filter_map(|e| Some(e.ok()?.path()))
+        .filter(|p| p != keep && p.extension().is_some_and(|x| x == "md") && is_note_for(p, key))
+        .collect()
 }
 
 fn key_line(key: &str) -> String {
@@ -114,6 +133,42 @@ fn text(s: &str) -> String {
         out.push(c);
     }
     out.replace('\n', " ")
+}
+
+/// A colored Obsidian box with a bullet list; `items` are already escaped Markdown.
+fn callout(md: &mut String, kind: &str, title: &str, items: &[String]) {
+    let _ = writeln!(md, "> [!{kind}] {title}");
+    for item in items {
+        let _ = writeln!(md, "> - {item}");
+    }
+}
+
+/// A Mermaid flowchart drawn from the relations. Labels are quoted, so any text is safe.
+fn concept_map(summary: &crate::domain::Summary) -> String {
+    let label = |s: &str| s.replace('"', "#quot;").replace(['\n', '\r'], " ");
+    let mut names: Vec<&str> = Vec::new();
+    for r in &summary.relations {
+        for name in [r.from.as_str(), r.to.as_str()] {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    let id = |name: &str| format!("n{}", names.iter().position(|n| *n == name).unwrap_or(0));
+    let edges: Vec<String> = summary
+        .relations
+        .iter()
+        .map(|r| format!("  {} -->|\"{}\"| {}", id(&r.from), label(&r.label), id(&r.to)))
+        .collect();
+    let mut out = String::from("```mermaid\nflowchart LR\n");
+    for (i, name) in names.iter().enumerate() {
+        let _ = writeln!(out, "  n{i}[\"{}\"]", label(name));
+    }
+    for edge in edges {
+        let _ = writeln!(out, "{edge}");
+    }
+    out.push_str("```");
+    out
 }
 
 fn markdown(doc: &Document, key: &str, images: &str) -> String {
@@ -148,14 +203,31 @@ fn markdown(doc: &Document, key: &str, images: &str) -> String {
     let _ = writeln!(md, "language: {}", doc.lang.as_str());
     md.push_str("tags:\n  - youtube-summary\n---\n\n");
 
-    let _ = writeln!(md, "> {}\n", text(&doc.summary.one_line));
+    let _ = writeln!(md, "> [!summary]\n> {}\n", text(&doc.summary.one_line));
 
     let _ = writeln!(md, "## {}\n", t.overview);
     for para in doc.summary.overview.lines().map(str::trim).filter(|p| !p.is_empty()) {
         let _ = writeln!(md, "{}\n", text(para));
     }
-    for point in &doc.summary.key_points {
-        let _ = writeln!(md, "- {}", text(point));
+    let points: Vec<String> = doc.summary.key_points.iter().map(|p| text(p)).collect();
+    callout(&mut md, "tip", t.key_points, &points);
+
+    if !doc.summary.relations.is_empty() {
+        let _ = writeln!(md, "\n## {}\n\n{}", t.concept_map, concept_map(doc.summary));
+    }
+    for c in &doc.summary.comparisons {
+        let _ = writeln!(md, "\n## {}: {}\n", t.comparison, text(&c.title));
+        let cells = |items: Vec<&str>| format!("| {} |", items.into_iter().map(text).collect::<Vec<_>>().join(" | "));
+        let _ = writeln!(md, "{}", cells(std::iter::once("").chain(c.subjects.iter().map(String::as_str)).collect()));
+        let _ = writeln!(md, "|{}", " --- |".repeat(c.subjects.len() + 1));
+        for row in &c.rows {
+            let _ = writeln!(md, "{}", cells(std::iter::once(row.aspect.as_str()).chain(row.values.iter().map(String::as_str)).collect()));
+        }
+    }
+    if !doc.summary.concepts.is_empty() {
+        let terms: Vec<String> = doc.summary.concepts.iter().map(|c| format!("**{}**: {}", text(&c.name), text(&c.meaning))).collect();
+        md.push('\n');
+        callout(&mut md, "info", t.glossary, &terms);
     }
 
     let _ = writeln!(md, "\n## {}\n", t.contents);
@@ -173,10 +245,8 @@ fn markdown(doc: &Document, key: &str, images: &str) -> String {
             let _ = writeln!(md, "{}\n", at(f.time, clock(f.time)));
         }
         let _ = writeln!(md, "{}\n", text(&c.summary));
-        let _ = writeln!(md, "**{}**\n", t.key_points);
-        for point in &c.key_points {
-            let _ = writeln!(md, "- {}", text(point));
-        }
+        let points: Vec<String> = c.key_points.iter().map(|p| text(p)).collect();
+        callout(&mut md, "tip", t.key_points, &points);
     }
 
     // Folded, so the summary stays the first thing a reader sees.
@@ -190,7 +260,7 @@ fn markdown(doc: &Document, key: &str, images: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{Chapter, Frame, Section, Segment, Summary, Transcript, VideoMeta};
+    use crate::domain::{Chapter, Comparison, ComparisonRow, Concept, Frame, Relation, Section, Segment, Summary, Transcript, VideoMeta};
     use crate::lang::LangCode;
 
     fn sample(title: &str) -> (VideoMeta, Summary, Vec<Section>, Transcript) {
@@ -210,6 +280,16 @@ mod tests {
             overview: "첫 문단\n\n둘째 문단".into(),
             key_points: vec!["전체 핵심".into()],
             chapters: vec![chapter.clone()],
+            concepts: vec![
+                Concept { name: "프로세스".into(), meaning: "실행 중인 \"프로그램\"".into() },
+                Concept { name: "스레드".into(), meaning: "프로세스 안의 실행 흐름".into() },
+            ],
+            relations: vec![Relation { from: "프로세스".into(), to: "스레드".into(), label: "여러 개 품음".into() }],
+            comparisons: vec![Comparison {
+                title: "프로세스 vs 스레드".into(),
+                subjects: vec!["프로세스".into(), "스레드".into()],
+                rows: vec![ComparisonRow { aspect: "메모리".into(), values: vec!["따로".into(), "공유 | 일부".into()] }],
+            }],
         };
         let frames = vec![Frame { time: 30.0, path: "frames/0001.jpg".into(), hash: 0 }];
         let transcript = Transcript { language: "ko".into(), segments: vec![Segment { start: 65.0, end: 67.0, text: "말한 내용".into() }] };
@@ -236,6 +316,11 @@ mod tests {
         assert!(md.contains("uploaded: 2015-12-13\n"));
         assert!(md.contains("1. [0:00–1:47](https://www.youtube.com/watch?v=JdgjWfve1DY&t=0s) 브라우저 호환성"));
         assert!(md.contains("![[YouTube 요약/첨부/JdgjWfve1DY/0001.jpg|480]]"));
+        assert!(md.contains("> [!summary]\n> 한 줄 요약"));
+        assert!(md.contains("> [!tip] 핵심 포인트\n> - 전체 핵심"));
+        assert!(md.contains("```mermaid\nflowchart LR\n  n0[\"프로세스\"]\n  n1[\"스레드\"]\n  n0 -->|\"여러 개 품음\"| n1\n```"));
+        assert!(md.contains("## 비교: 프로세스 vs 스레드\n\n|  | 프로세스 | 스레드 |\n| --- | --- | --- |\n| 메모리 | 따로 | 공유 \\| 일부 |"));
+        assert!(md.contains("> [!info] 용어 정리\n> - **프로세스**: 실행 중인 \"프로그램\""));
         assert!(md.contains("> [!quote]- 부록: 전체 받아쓰기\n> - [1:05](https://www.youtube.com/watch?v=JdgjWfve1DY&t=65s) 말한 내용"));
         assert_eq!(std::fs::read(vault.path().join("YouTube 요약/첨부/JdgjWfve1DY/0001.jpg")).unwrap(), b"jpg");
     }
@@ -249,6 +334,17 @@ mod tests {
         let second = write(vault.path(), "같은 제목");
         assert_eq!(second, vault.path().join("YouTube 요약/같은 제목 (JdgjWfve1DY).md"));
         assert_eq!(std::fs::read_to_string(&first).unwrap(), "내가 직접 쓴 노트");
+    }
+
+    #[test]
+    fn a_new_title_replaces_the_old_note_of_the_same_video() {
+        let vault = tempfile::tempdir().unwrap();
+        let old = write(vault.path(), "옛 제목");
+        let mine = vault.path().join("YouTube 요약/내 메모.md");
+        std::fs::write(&mine, "본문에 적은 ytdoc: \"JdgjWfve1DY\"").unwrap();
+        let new = write(vault.path(), "새 제목");
+        assert!(new.is_file() && !old.exists(), "the old note is gone");
+        assert!(mine.is_file(), "a note that only mentions the id is not ours");
     }
 
     #[test]
