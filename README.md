@@ -19,7 +19,7 @@ PDF에 들어가는 내용은 다음과 같습니다.
 4. **장면 뽑기.** ffmpeg로 화면이 크게 바뀌는 순간을 찾고, 화면 변화가 적은 영상은 30초마다 한 장씩 보충합니다. 거의 같은 장면은 perceptual hash로 걸러 냅니다.
 5. **번역 (번역을 켰을 때만).** Claude가 받아쓰기를 나누어 번역합니다. 각 줄의 시간은 원래 받아쓰기의 시간을 그대로 씁니다. 고른 언어가 영상에서 말하는 언어와 같으면 이 단계를 건너뜁니다.
 6. **요약.** Claude가 받아쓰기를 읽고, 문서 언어로 챕터, 요약, 핵심 포인트를 씁니다.
-7. **PDF 만들기.** HTML 문서를 만든 뒤 Google Chrome의 headless 인쇄 기능으로 A4 PDF를 만듭니다.
+7. **PDF 만들기.** 프로그램에 들어 있는 [Typst](https://typst.app/) 조판 엔진으로 A4 PDF를 만듭니다. 브라우저가 필요 없습니다.
 
 각 단계의 결과는 `.ytdoc_cache/<영상ID>/`에 저장됩니다. 내 컴퓨터의 파일은 파일 내용으로 만든 이름(`file-<해시>`)의 폴더를 씁니다. 같은 영상으로 다시 실행하면 끝난 단계는 건너뜁니다. 실행이 중간에 멈췄다면 그대로 다시 실행하면 이어서 진행합니다.
 
@@ -31,7 +31,7 @@ macOS, Linux, Windows에서 쓸 수 있습니다. 필요한 프로그램은 다�
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp): YouTube 영상을 받습니다. 내 컴퓨터의 파일만 쓴다면 필요 없습니다.
 - [deno](https://deno.com/): yt-dlp가 YouTube 영상을 받을 때 필요한 JavaScript 실행기입니다. 없으면 `HTTP Error 403`으로 내려받기가 실패합니다.
 - [ffmpeg](https://ffmpeg.org/)
-- Google Chrome, Chromium, Microsoft Edge 중 하나
+- 문서 언어의 글꼴: macOS와 Windows에는 한국어, 일본어, 중국어 글꼴이 기본으로 있습니다. Linux는 아래처럼 설치합니다.
 - 요약에 쓸 Claude: 아래 [요약 방식 고르기](#요약-방식-고르기) 참고
 
 ### macOS
@@ -50,16 +50,16 @@ rustup-init
 winget install Rustlang.Rustup Kitware.CMake LLVM.LLVM yt-dlp.yt-dlp DenoLand.Deno Gyan.FFmpeg
 ```
 
-설치한 뒤 PowerShell을 새로 열어야 명령을 찾을 수 있습니다. Windows에는 Microsoft Edge가 기본으로 있어서 Chrome이 없어도 됩니다.
+설치한 뒤 PowerShell을 새로 열어야 명령을 찾을 수 있습니다.
 
 ### Linux (Ubuntu, Debian)
 
 ```sh
-sudo apt install build-essential cmake clang ffmpeg
+sudo apt install build-essential cmake clang ffmpeg fonts-noto-cjk
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-yt-dlp는 배포판 패키지가 오래된 경우가 많으니 [yt-dlp 설치 안내](https://github.com/yt-dlp/yt-dlp/wiki/Installation)를 따르고, [deno](https://docs.deno.com/runtime/getting_started/installation/)와 Chrome(또는 Chromium)도 설치합니다.
+yt-dlp는 배포판 패키지가 오래된 경우가 많으니 [yt-dlp 설치 안내](https://github.com/yt-dlp/yt-dlp/wiki/Installation)를 따르고, [deno](https://docs.deno.com/runtime/getting_started/installation/)도 설치합니다. `fonts-noto-cjk`는 PDF의 한국어, 일본어, 중국어 글꼴입니다.
 
 ## 설치
 
@@ -150,7 +150,7 @@ Apple M1에서 6분 10초짜리 한국어 영상([예시](examples/))을 처리�
 | 장면 뽑기 | 8초 |
 | 번역 (`claude-cli`, 영어로) | 48초 |
 | 요약 (`claude-cli`) | 17초~30초 |
-| PDF 만들기 | 2초~8초 |
+| PDF 만들기 | 1초 이내 |
 
 위 표는 각 단계를 하나씩 차례로 실행하던 이전 버전에서 잰 값입니다. 지금은 두 가지가 바뀌어 더 빠릅니다.
 
@@ -173,7 +173,7 @@ Apple M1에서 6분 10초짜리 한국어 영상([예시](examples/))을 처리�
 
 ```sh
 cargo test
-# ffmpeg, Whisper, Chrome을 실제로 돌리는 테스트까지 (tiny 모델을 내려받습니다)
+# ffmpeg와 Whisper를 실제로 돌리는 테스트까지 (tiny 모델을 내려받습니다)
 cargo test -- --include-ignored
 cargo run -- "https://youtu.be/영상ID"
 ```

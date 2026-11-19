@@ -205,10 +205,8 @@ pub fn run_pipeline(source: &Source, opts: &Options, progress: &dyn Progress) ->
             lang: &out_lang,
             translated_from: target.as_ref().and(spoken.as_ref()),
         };
-        // The HTML lives next to frames/ so its relative image paths resolve.
-        let html = work.join(format!("document.{out_lang}.html"));
-        crate::cache::write_atomic(&html, render::render_html(&doc)?.as_bytes())?;
-        render::html_to_pdf(&html, &pdf)?;
+        // Frame paths are relative to the work dir.
+        render::render_pdf(&doc, &work, &pdf)?;
         Ok(((), Outcome::Done))
     })?;
     Ok(Finished { pdf, title: summary.title })
@@ -228,12 +226,12 @@ fn default_pdf_name(meta: &VideoMeta) -> String {
 mod tests {
     use std::process::Command;
 
-    use crate::{frames, media, render, transcribe};
+    use crate::{frames, media, transcribe};
 
-    /// Runs the outside tools every OS must have: ffmpeg/ffprobe, whisper.cpp and Chrome.
+    /// Runs the outside tools every OS must have: ffmpeg/ffprobe and whisper.cpp.
     /// Downloads the small `tiny` Whisper model, so CI runs it with `--include-ignored`.
     #[test]
-    #[ignore = "needs ffmpeg, Chrome and network"]
+    #[ignore = "needs ffmpeg and network"]
     fn local_tools_work_on_this_os() {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("입력 영상.mp4");
@@ -261,11 +259,5 @@ mod tests {
 
         let model = transcribe::model_file("tiny", &|_| {}).unwrap();
         transcribe::transcribe(&samples, &model, &|_| {}).unwrap();
-
-        let html = work.join("문서.html");
-        std::fs::write(&html, format!("<html><body><h1>테스트</h1><img src=\"{}\"></body></html>", picked[0].path)).unwrap();
-        let pdf = dir.path().join("출력 폴더").join("결과.pdf");
-        render::html_to_pdf(&html, &pdf).unwrap();
-        assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"), "Chrome wrote a PDF");
     }
 }
