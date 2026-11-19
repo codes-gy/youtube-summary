@@ -49,6 +49,24 @@ struct YtInfo {
 
 /// Download (720p or lower, with audio) into `work/video.mp4`, reporting progress percentages.
 pub fn download_youtube(id: &str, work: &Path, on_progress: &dyn Fn(String)) -> Result<VideoMeta> {
+    // YouTube sometimes refuses a download (403) that works a few seconds later.
+    for attempt in 1.. {
+        match download_once(id, work, on_progress) {
+            Err(err) if attempt < 3 && is_transient(&format!("{err:#}")) => {
+                on_progress(format!("YouTube가 잠시 거절해서 다시 시도합니다 ({attempt}/2)"));
+                std::thread::sleep(std::time::Duration::from_secs(5 * attempt));
+            }
+            result => return result,
+        }
+    }
+    unreachable!()
+}
+
+fn is_transient(reason: &str) -> bool {
+    ["HTTP Error 403", "HTTP Error 429", "HTTP Error 5"].iter().any(|code| reason.contains(code))
+}
+
+fn download_once(id: &str, work: &Path, on_progress: &dyn Fn(String)) -> Result<VideoMeta> {
     fs::create_dir_all(work)?;
     let url = crate::source::Source::youtube_url(id);
     let mut child = Command::new("yt-dlp")
@@ -201,4 +219,16 @@ pub fn read_wav(wav: &Path) -> Result<Vec<f32>> {
         .into_samples::<i16>()
         .map(|s| Ok(f32::from(s?) / 32768.0))
         .collect()
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    #[test]
+    fn refusals_that_pass_are_retried() {
+        assert!(is_transient("unable to download video data: HTTP Error 403: Forbidden"));
+        assert!(is_transient("HTTP Error 503: Service Unavailable"));
+        assert!(!is_transient("Video unavailable. This video is private"));
+    }
 }
