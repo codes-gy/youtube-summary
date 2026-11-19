@@ -21,9 +21,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # whisper.cpp's CMake cache stores absolute compiler paths, which change
+      # when GitHub updates a runner image; never reuse a build across images.
+      - name: Note the runner image
+        shell: bash
+        run: echo "RUNNER_IMAGE=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: v1-portable
+          key: ${{ env.RUNNER_IMAGE }}
       - name: Install ffmpeg (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
