@@ -86,12 +86,15 @@ pub fn serve(port: u16, defaults: Options) -> Result<()> {
             .route("/api/jobs/{id}", get(job_status))
             .route("/api/jobs/{id}/pdf", get(job_pdf))
             .layer(axum::middleware::from_fn_with_state(app.clone(), local_host_only))
-            .with_state(app);
+            .with_state(app.clone());
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         let listener = tokio::net::TcpListener::bind(addr)
             .await
             .with_context(|| format!("{addr}에서 열 수 없습니다. 다른 프로그램이 쓰고 있다면 --port로 다른 번호를 고르세요"))?;
         eprintln!("ytdoc 웹 페이지: http://{addr}  (끝내려면 Ctrl+C)");
+        if let Some(vault) = &app.defaults.obsidian {
+            eprintln!("요약을 옵시디언 노트로도 저장합니다: {}", vault.display());
+        }
         axum::serve(listener, router).await?;
         Ok(())
     })

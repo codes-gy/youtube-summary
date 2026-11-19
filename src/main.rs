@@ -4,6 +4,7 @@ mod domain;
 mod frames;
 mod lang;
 mod media;
+mod obsidian;
 mod pipeline;
 mod platform;
 mod render;
@@ -74,26 +75,39 @@ struct Common {
     /// 중간 결과 저장 폴더
     #[arg(long, default_value = ".ytdoc_cache")]
     cache_dir: PathBuf,
+    /// 요약을 Obsidian 노트로도 저장 (Obsidian이 마지막으로 연 보관함의 "YouTube 요약" 폴더)
+    #[arg(long)]
+    obsidian: bool,
+    /// 노트를 저장할 Obsidian 보관함 폴더 (지정하면 --obsidian이 켜집니다)
+    #[arg(long, value_name = "FOLDER", env = "YTDOC_OBSIDIAN_VAULT")]
+    obsidian_vault: Option<PathBuf>,
 }
 
 impl Common {
-    fn options(self, output: Option<PathBuf>) -> Options {
-        Options {
+    fn options(self, output: Option<PathBuf>) -> anyhow::Result<Options> {
+        // Find the vault before the long work starts, so a mistake shows up at once.
+        let obsidian = match (self.obsidian_vault, self.obsidian) {
+            (Some(vault), _) => Some(obsidian::check_vault(&vault)?),
+            (None, true) => Some(obsidian::find_vault()?),
+            (None, false) => None,
+        };
+        Ok(Options {
             cache_dir: self.cache_dir,
             whisper_model: self.whisper_model,
             max_images: self.max_images,
             summarizer: self.summarizer,
             translate: self.translate,
             output,
-        }
+            obsidian,
+        })
     }
 }
 
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
-        Some(Command::Serve { port, common }) => web::serve(port, common.options(None)),
-        None => run_cli(&cli.source.expect("clap requires it"), cli.common.options(cli.output)),
+        Some(Command::Serve { port, common }) => common.options(None).and_then(|opts| web::serve(port, opts)),
+        None => cli.common.options(cli.output).and_then(|opts| run_cli(&cli.source.expect("clap requires it"), opts)),
     };
     if let Err(err) = result {
         eprintln!("\n오류: {err:#}");
@@ -108,6 +122,9 @@ fn run_cli(arg: &str, opts: Options) -> anyhow::Result<()> {
     printer.report();
     let pdf = std::path::absolute(&done.pdf).unwrap_or(done.pdf);
     println!("\nPDF: {}", pdf.display());
+    if let Some(note) = done.note {
+        println!("옵시디언 노트: {}", note.display());
+    }
     Ok(())
 }
 

@@ -20,6 +20,7 @@ PDF에 들어가는 내용은 다음과 같습니다.
 5. **번역 (번역을 켰을 때만).** Claude가 받아쓰기를 나누어 번역합니다. 각 줄의 시간은 원래 받아쓰기의 시간을 그대로 씁니다. 고른 언어가 영상에서 말하는 언어와 같으면 이 단계를 건너뜁니다.
 6. **요약.** Claude가 받아쓰기를 읽고, 문서 언어로 챕터, 요약, 핵심 포인트를 씁니다.
 7. **PDF 만들기.** 프로그램에 들어 있는 [Typst](https://typst.app/) 조판 엔진으로 A4 PDF를 만듭니다. 브라우저가 필요 없습니다.
+8. **Obsidian 노트 (`--obsidian`을 켰을 때만).** 같은 내용을 Obsidian 보관함에 Markdown 노트로 저장합니다.
 
 각 단계의 결과는 `.ytdoc_cache/<영상ID>/`에 저장됩니다. 내 컴퓨터의 파일은 파일 내용으로 만든 이름(`file-<해시>`)의 폴더를 씁니다. 같은 영상으로 다시 실행하면 끝난 단계는 건너뜁니다. 실행이 중간에 멈췄다면 그대로 다시 실행하면 이어서 진행합니다.
 
@@ -88,7 +89,7 @@ ytdoc serve
 
 작업은 한 번에 하나씩 처리합니다. 진행 중에 다른 작업을 넣으면 앞 작업이 끝난 뒤 시작합니다. 서버를 끄려면 터미널에서 `Ctrl+C`를 누릅니다.
 
-포트를 바꾸려면 `--port`를 씁니다(기본값 `8000`). `--whisper-model`, `--max-images`, `--summarizer`, `--cache-dir`도 아래 명령줄과 같은 뜻으로 쓸 수 있습니다.
+포트를 바꾸려면 `--port`를 씁니다(기본값 `8000`). `--whisper-model`, `--max-images`, `--summarizer`, `--cache-dir`, `--obsidian`도 아래 명령줄과 같은 뜻으로 쓸 수 있습니다.
 
 ## 명령줄로 쓰기
 
@@ -126,6 +127,23 @@ ytdoc "https://youtu.be/영상ID" --max-images 4
 | `--max-images` | `2` | 챕터당 최대 이미지 수 |
 | `--summarizer` | `auto` | `auto`, `api`, `claude-cli` |
 | `--cache-dir` | `.ytdoc_cache` | 중간 결과 저장 폴더 |
+| `--obsidian` | 꺼짐 | 요약을 Obsidian 노트로도 저장합니다. 아래 [Obsidian에 저장하기](#obsidian에-저장하기) 참고 |
+| `--obsidian-vault` | 없음 | 노트를 저장할 Obsidian 보관함 폴더. 지정하면 `--obsidian`이 켜집니다. 환경 변수 `YTDOC_OBSIDIAN_VAULT`로도 정할 수 있습니다. |
+
+## Obsidian에 저장하기
+
+`--obsidian`을 붙이면 PDF와 같은 내용을 [Obsidian](https://obsidian.md/) 노트로도 저장합니다.
+
+```sh
+ytdoc "https://www.youtube.com/watch?v=JdgjWfve1DY" --obsidian
+```
+
+- 노트는 Obsidian이 지금 열고 있는 보관함(없으면 마지막으로 연 보관함)의 `YouTube 요약` 폴더에 `<문서 제목>.md`로 저장됩니다. 다른 보관함에 저장하려면 `--obsidian-vault <폴더>`를 씁니다.
+- 노트 맨 위의 속성에 원본 주소, 채널, 길이, 게시일, `youtube-summary` 태그가 들어갑니다.
+- 목차와 장면 사진 아래의 시간을 누르면 영상의 그 부분이 열립니다. 장면 사진은 `YouTube 요약/첨부/<영상ID>/`에 복사됩니다.
+- 전체 받아쓰기는 접힌 상자에 들어 있어서 필요할 때만 펼쳐 봅니다.
+- 같은 영상을 다시 만들면 그 노트를 새 내용으로 바꿉니다. 같은 이름의 다른 노트가 있으면 덮어쓰지 않고 `<문서 제목> (<영상ID>).md`로 저장합니다.
+- 웹 화면에서도 쓰려면 `ytdoc serve --obsidian`으로 켭니다.
 
 ## 요약 방식 고르기
 
