@@ -191,7 +191,7 @@ pub fn run_pipeline(source: &Source, opts: &Options, progress: &dyn Progress) ->
             })
         });
         let summary: Result<Summary> = stage(progress, Stage::Summarize, || {
-            let (s, c) = cached(&work.join(format!("summary.{out_lang}.{model_tag}.json")), || {
+            let (s, c) = cached(&work.join(format!("summary.v2.{out_lang}.{model_tag}.json")), || {
                 summarize::summarize(llm()?, &meta, &transcript, &out_lang)
             })?;
             Ok((s, outcome(c)))

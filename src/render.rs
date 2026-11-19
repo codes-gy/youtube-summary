@@ -85,6 +85,8 @@ fn view(doc: &Document) -> Value {
         "one_line": doc.summary.one_line,
         "overview": doc.summary.overview.lines().map(str::trim).filter(|p| !p.is_empty()).collect::<Vec<_>>(),
         "key_points": doc.summary.key_points,
+        "concepts": doc.summary.concepts,
+        "comparisons": doc.summary.comparisons,
         "video_url": doc.meta.watch_url(),
         "details": details(doc, upload_date),
         "sections": sections,
@@ -215,6 +217,13 @@ mod tests {
             overview: format!("{text}\n\n{text}"),
             key_points: vec![text.into()],
             chapters: vec![chapter.clone()],
+            concepts: vec![crate::domain::Concept { name: text.into(), meaning: text.into() }],
+            relations: vec![],
+            comparisons: vec![crate::domain::Comparison {
+                title: text.into(),
+                subjects: vec![text.into(), text.into()],
+                rows: vec![crate::domain::ComparisonRow { aspect: text.into(), values: vec![text.into(), text.into()] }],
+            }],
         };
         let frame = Frame { time: 30.0, path: "frames/0001.jpg".into(), hash: 0 };
         let sections = vec![Section { chapter, frames: vec![frame] }];

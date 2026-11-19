@@ -75,8 +75,46 @@ pub struct Chapter {
     pub key_points: Vec<String>,
 }
 
-/// What the summarizer must return. Also the JSON schema sent to Claude.
+/// A term the video uses, for the glossary and the concept map.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Concept {
+    /// The term, short, as the video uses it
+    pub name: String,
+    /// One plain sentence explaining the term
+    pub meaning: String,
+}
+
+/// An arrow in the concept map.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Relation {
+    /// Exactly the name of one of the concepts
+    pub from: String,
+    /// Exactly the name of another of the concepts
+    pub to: String,
+    /// 1-4 word phrase for the arrow, e.g. "contains" or "runs on"
+    pub label: String,
+}
+
+/// A table for when the video compares things.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Comparison {
+    /// What is compared, e.g. "Process vs thread"
+    pub title: String,
+    /// The 2-4 things compared; the table's columns
+    pub subjects: Vec<String>,
+    pub rows: Vec<ComparisonRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ComparisonRow {
+    /// The aspect compared, e.g. "Memory"
+    pub aspect: String,
+    /// One short value per subject, in the same order as subjects
+    pub values: Vec<String>,
+}
+
+/// What the summarizer must return. Also the JSON schema sent to Claude.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Summary {
     /// Document title in the output language
     pub title: String,
@@ -88,6 +126,12 @@ pub struct Summary {
     pub key_points: Vec<String>,
     /// Consecutive chapters covering the video in order
     pub chapters: Vec<Chapter>,
+    /// 3-8 key terms of the video, most central first
+    pub concepts: Vec<Concept>,
+    /// 2-12 arrows between those concepts that show how the ideas connect
+    pub relations: Vec<Relation>,
+    /// 0-2 tables, only for things the video actually compares; usually empty
+    pub comparisons: Vec<Comparison>,
 }
 
 impl Summary {
@@ -106,6 +150,21 @@ impl Summary {
         }
         if self.chapters.windows(2).any(|w| w[1].start < w[0].start) {
             return Err("chapters must be in chronological order".into());
+        }
+        for r in &self.relations {
+            for end in [&r.from, &r.to] {
+                if !self.concepts.iter().any(|c| &c.name == end) {
+                    return Err(format!("relation end \"{end}\" is not the name of one of the concepts"));
+                }
+            }
+        }
+        for c in &self.comparisons {
+            if c.subjects.len() < 2 {
+                return Err(format!("comparison \"{}\" needs at least two subjects", c.title));
+            }
+            if c.rows.iter().any(|r| r.values.len() != c.subjects.len()) {
+                return Err(format!("comparison \"{}\": every row needs one value per subject", c.title));
+            }
         }
         Ok(())
     }
@@ -174,6 +233,23 @@ mod tests {
         Frame { time, path: format!("frames/{time}.jpg"), hash: 0 }
     }
 
+    #[test]
+    fn relations_and_tables_must_fit_the_concepts() {
+        let mut s = summary(vec![chapter(0.0, 10.0)]);
+        s.concepts = vec![Concept { name: "A".into(), meaning: "a".into() }, Concept { name: "B".into(), meaning: "b".into() }];
+        s.relations = vec![Relation { from: "A".into(), to: "B".into(), label: "uses".into() }];
+        assert_eq!(s.check(), Ok(()));
+        s.relations[0].to = "C".into();
+        assert!(s.check().unwrap_err().contains("\"C\""));
+        s.relations.clear();
+        s.comparisons = vec![Comparison {
+            title: "A vs B".into(),
+            subjects: vec!["A".into(), "B".into()],
+            rows: vec![ComparisonRow { aspect: "x".into(), values: vec!["1".into()] }],
+        }];
+        assert!(s.check().unwrap_err().contains("one value per subject"));
+    }
+
     fn summary(chapters: Vec<Chapter>) -> Summary {
         Summary {
             title: "t".into(),
@@ -181,6 +257,7 @@ mod tests {
             overview: "v".into(),
             key_points: vec![],
             chapters,
+            ..Default::default()
         }
     }
 

@@ -73,6 +73,29 @@
     grid(columns: (26mm, 1fr), column-gutter: 4mm, at(s.start, s.span), s.title),
   )
 }
+#v(8mm)
+
+#for c in d.comparisons {
+  section-title(t.comparison + ": " + c.title)
+  block(below: 8mm, table(
+    columns: (auto,) + (1fr,) * c.subjects.len(),
+    stroke: (x, y) => (bottom: if y == 0 { 1.5pt + ink } else { 0.5pt + rule }),
+    fill: (x, y) => if x == 0 and y > 0 { soft },
+    inset: (x: 3mm, y: 2mm),
+    table.header(..(([],) + c.subjects).map(s => text(weight: 700, s))),
+    ..c.rows.map(r => (text(weight: 700, r.aspect),) + r.values).flatten(),
+  ))
+}
+
+#if d.concepts.len() > 0 {
+  section-title(t.glossary)
+  block(below: 8mm, grid(
+    columns: (auto, 1fr),
+    column-gutter: 5mm,
+    row-gutter: 2.5mm,
+    ..d.concepts.map(c => (text(weight: 700, fill: accent, c.name), c.meaning)).flatten(),
+  ))
+}
 
 // Chapters
 #pagebreak()
