@@ -9,7 +9,7 @@ use crate::claude::{BackendChoice, Llm};
 use crate::domain::{FrameSet, Summary, Transcript, VideoMeta, assign_frames};
 use crate::lang::LangCode;
 use crate::source::Source;
-use crate::{frames, media, render, summarize, transcribe, translate};
+use crate::{frames, media, obsidian, render, summarize, transcribe, translate};
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -21,6 +21,8 @@ pub struct Options {
     pub translate: Option<LangCode>,
     /// None writes `<video id or file name>.pdf` in the current directory.
     pub output: Option<PathBuf>,
+    /// An Obsidian vault to also write the document into as a note.
+    pub obsidian: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -33,10 +35,11 @@ pub enum Stage {
     Translate,
     Summarize,
     Pdf,
+    Obsidian,
 }
 
 impl Stage {
-    pub const ALL: [Stage; 7] = [
+    pub const ALL: [Stage; 8] = [
         Stage::Download,
         Stage::Audio,
         Stage::Transcribe,
@@ -44,6 +47,7 @@ impl Stage {
         Stage::Translate,
         Stage::Summarize,
         Stage::Pdf,
+        Stage::Obsidian,
     ];
 
     pub fn label(self) -> &'static str {
@@ -55,6 +59,7 @@ impl Stage {
             Stage::Translate => "번역",
             Stage::Summarize => "요약",
             Stage::Pdf => "PDF 만들기",
+            Stage::Obsidian => "옵시디언 노트",
         }
     }
 }
@@ -82,6 +87,7 @@ pub trait Progress: Sync {
 pub struct Finished {
     pub pdf: PathBuf,
     pub title: String,
+    pub note: Option<PathBuf>,
 }
 
 /// Runs `step`, timing it and reporting whether it was cached.
@@ -195,21 +201,25 @@ pub fn run_pipeline(source: &Source, opts: &Options, progress: &dyn Progress) ->
     })?;
 
     let pdf = opts.output.clone().unwrap_or_else(|| PathBuf::from(default_pdf_name(&meta)));
+    let sections = assign_frames(&summary.chapters, &frame_set.frames, opts.max_images);
+    let doc = render::Document {
+        meta: &meta,
+        summary: &summary,
+        sections: &sections,
+        transcript: translation.as_ref().unwrap_or(&transcript),
+        lang: &out_lang,
+        translated_from: target.as_ref().and(spoken.as_ref()),
+    };
     stage(progress, Stage::Pdf, || {
-        let sections = assign_frames(&summary.chapters, &frame_set.frames, opts.max_images);
-        let doc = render::Document {
-            meta: &meta,
-            summary: &summary,
-            sections: &sections,
-            transcript: translation.as_ref().unwrap_or(&transcript),
-            lang: &out_lang,
-            translated_from: target.as_ref().and(spoken.as_ref()),
-        };
         // Frame paths are relative to the work dir.
         render::render_pdf(&doc, &work, &pdf)?;
         Ok(((), Outcome::Done))
     })?;
-    Ok(Finished { pdf, title: summary.title })
+    let note = stage(progress, Stage::Obsidian, || match &opts.obsidian {
+        Some(vault) => Ok((Some(obsidian::write_note(&doc, &work, vault)?), Outcome::Done)),
+        None => Ok((None, Outcome::Skipped)),
+    })?;
+    Ok(Finished { pdf, title: summary.title.clone(), note })
 }
 
 fn default_pdf_name(meta: &VideoMeta) -> String {
