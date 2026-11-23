@@ -7,6 +7,7 @@ mod media;
 mod obsidian;
 mod pipeline;
 mod platform;
+mod proofread;
 mod render;
 mod source;
 mod summarize;
