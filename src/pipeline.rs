@@ -9,7 +9,7 @@ use crate::claude::{BackendChoice, Llm};
 use crate::domain::{FrameSet, Summary, Transcript, VideoMeta, assign_frames};
 use crate::lang::LangCode;
 use crate::source::Source;
-use crate::{frames, media, obsidian, render, summarize, transcribe, translate};
+use crate::{frames, media, obsidian, proofread, render, summarize, transcribe, translate};
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -32,6 +32,7 @@ pub enum Stage {
     Audio,
     Transcribe,
     Frames,
+    Proofread,
     Translate,
     Summarize,
     Pdf,
@@ -39,11 +40,12 @@ pub enum Stage {
 }
 
 impl Stage {
-    pub const ALL: [Stage; 8] = [
+    pub const ALL: [Stage; 9] = [
         Stage::Download,
         Stage::Audio,
         Stage::Transcribe,
         Stage::Frames,
+        Stage::Proofread,
         Stage::Translate,
         Stage::Summarize,
         Stage::Pdf,
@@ -56,6 +58,7 @@ impl Stage {
             Stage::Audio => "소리 꺼내기",
             Stage::Transcribe => "받아쓰기",
             Stage::Frames => "장면 뽑기",
+            Stage::Proofread => "받아쓰기 다듬기",
             Stage::Translate => "번역",
             Stage::Summarize => "요약",
             Stage::Pdf => "PDF 만들기",
@@ -175,6 +178,12 @@ pub fn run_pipeline(source: &Source, opts: &Options, progress: &dyn Progress) ->
         let b = opts.summarizer.resolve()?;
         Ok(backend.get_or_init(|| b) as &dyn Llm)
     };
+
+    let transcript = stage(progress, Stage::Proofread, || {
+        let (fixes, c) =
+            cached(&work.join(format!("transcript-fixes.v1.{model_tag}.json")), || proofread::find_fixes(llm()?, &transcript))?;
+        Ok((proofread::apply(&transcript, &fixes), outcome(c)))
+    })?;
 
     // The summary reads the original transcript, so it need not wait for the translation.
     let out_lang: LangCode = target.clone().or(spoken.clone()).unwrap_or_else(|| "en".parse().unwrap());

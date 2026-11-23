@@ -10,9 +10,9 @@ use crate::claude::{Llm, ask};
 use crate::domain::{Segment, Transcript};
 use crate::lang::LangCode;
 
-const MAX_SEGMENTS: usize = 150;
+pub const MAX_SEGMENTS: usize = 150;
 /// Keeps each answer well under the output limit even for verbose target languages.
-const MAX_CHARS: usize = 6000;
+pub const MAX_CHARS: usize = 6000;
 const PARALLEL_CALLS: usize = 4;
 
 const SYSTEM_PROMPT: &str = "You translate video transcripts from {source} into {target}.
@@ -77,6 +77,24 @@ pub fn check_batch(expected: &[usize], answer: &TranslatedBatch) -> Result<(), S
     if problems.is_empty() { Ok(()) } else { Err(problems.join("; ")) }
 }
 
+/// Run `work` on every group, a few at a time, stopping at the first error.
+pub fn run_parallel(groups: &[Vec<usize>], work: impl Fn(&[usize]) -> Result<()> + Sync) -> Result<()> {
+    let next = AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..PARALLEL_CALLS.min(groups.len()))
+            .map(|_| {
+                scope.spawn(|| -> Result<()> {
+                    while let Some(group) = groups.get(next.fetch_add(1, Ordering::Relaxed)) {
+                        work(group)?;
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        workers.into_iter().try_for_each(|w| w.join().expect("worker panicked"))
+    })
+}
+
 /// Translate each segment's text into `target`, keeping the original timestamps.
 pub fn translate(llm: &dyn Llm, transcript: &Transcript, target: &LangCode) -> Result<Transcript> {
     let source = transcript.language.parse::<LangCode>().map_or_else(|_| transcript.language.clone(), |l| l.english_name());
@@ -85,7 +103,6 @@ pub fn translate(llm: &dyn Llm, transcript: &Transcript, target: &LangCode) -> R
         .replace("{target}", &target.english_name());
     let segments = &transcript.segments;
     let groups = batches(segments, MAX_SEGMENTS, MAX_CHARS);
-    let next = AtomicUsize::new(0);
     let texts: Mutex<HashMap<usize, String>> = Mutex::new(HashMap::new());
 
     let run_batch = |indices: &[usize]| -> Result<()> {
@@ -95,19 +112,7 @@ pub fn translate(llm: &dyn Llm, transcript: &Transcript, target: &LangCode) -> R
         texts.extend(answer.lines.into_iter().map(|l| (l.i, l.text.trim().to_string())));
         Ok(())
     };
-    std::thread::scope(|scope| {
-        let workers: Vec<_> = (0..PARALLEL_CALLS.min(groups.len()))
-            .map(|_| {
-                scope.spawn(|| -> Result<()> {
-                    while let Some(group) = groups.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        run_batch(group)?;
-                    }
-                    Ok(())
-                })
-            })
-            .collect();
-        workers.into_iter().try_for_each(|w| w.join().expect("translation worker panicked"))
-    })?;
+    run_parallel(&groups, run_batch)?;
 
     let mut texts = texts.into_inner().unwrap();
     let segments = segments
