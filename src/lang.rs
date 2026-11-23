@@ -75,6 +75,8 @@ pub struct Labels {
     pub concept_map: &'static str,
     pub comparison: &'static str,
     pub glossary: &'static str,
+    /// Title of the folded box that holds a chapter's details in the Obsidian note.
+    pub details: &'static str,
 }
 
 /// The languages the web page offers, in its dropdown order.
@@ -101,6 +103,7 @@ pub const LANGUAGES: &[Language] = &[
             concept_map: "개념 관계도",
             comparison: "비교",
             glossary: "용어 정리",
+            details: "자세히",
         },
     },
     Language {
@@ -125,6 +128,7 @@ pub const LANGUAGES: &[Language] = &[
             concept_map: "Concept map",
             comparison: "Comparison",
             glossary: "Glossary",
+            details: "Details",
         },
     },
     Language {
@@ -149,6 +153,7 @@ pub const LANGUAGES: &[Language] = &[
             concept_map: "概念マップ",
             comparison: "比較",
             glossary: "用語集",
+            details: "詳細",
         },
     },
     Language {
@@ -173,6 +178,7 @@ pub const LANGUAGES: &[Language] = &[
             concept_map: "概念图",
             comparison: "对比",
             glossary: "术语表",
+            details: "详情",
         },
     },
     Language {
@@ -197,6 +203,7 @@ pub const LANGUAGES: &[Language] = &[
             concept_map: "Mapa de conceptos",
             comparison: "Comparación",
             glossary: "Glosario",
+            details: "Detalles",
         },
     },
     Language {
@@ -221,6 +228,7 @@ pub const LANGUAGES: &[Language] = &[
             concept_map: "Carte des concepts",
             comparison: "Comparaison",
             glossary: "Glossaire",
+            details: "Détails",
         },
     },
     Language {
@@ -245,6 +253,7 @@ pub const LANGUAGES: &[Language] = &[
             concept_map: "Begriffskarte",
             comparison: "Vergleich",
             glossary: "Glossar",
+            details: "Details",
         },
     },
     Language {
@@ -269,6 +278,7 @@ pub const LANGUAGES: &[Language] = &[
             concept_map: "Sơ đồ khái niệm",
             comparison: "So sánh",
             glossary: "Thuật ngữ",
+            details: "Chi tiết",
         },
     },
 ];
