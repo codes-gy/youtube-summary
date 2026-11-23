@@ -216,11 +216,16 @@ fn section_heading(index: usize, title: &str) -> String {
 }
 
 /// A colored Obsidian box with a bullet list; `items` are already escaped Markdown.
-fn callout(md: &mut String, kind: &str, title: &str, items: &[String]) {
-    let _ = writeln!(md, "> [!{kind}] {title}");
+fn callout(md: &mut String, kind: &str, title: &str, items: &[String], folded: bool) {
+    let _ = writeln!(md, "> [!{kind}]{} {title}", if folded { "-" } else { "" });
     for item in items {
         let _ = writeln!(md, "> - {item}");
     }
+}
+
+/// `text` with every line put inside a callout.
+fn quoted(text: &str) -> String {
+    text.lines().map(|l| if l.is_empty() { ">".to_string() } else { format!("> {l}") }).collect::<Vec<_>>().join("\n")
 }
 
 /// A Mermaid flowchart drawn from the relations. Labels are quoted, so any text is safe.
@@ -288,22 +293,24 @@ fn markdown(doc: &Document, key: &str, images: &str, carried: &Carried) -> Strin
     }
     md.push_str("---\n\n");
 
+    // The summary is what a reader sees; everything longer is folded until asked for.
     let _ = writeln!(md, "> [!summary]\n> {}\n", text(&doc.summary.one_line));
+    let _ = writeln!(md, "## {}\n", t.overview);
+    for para in doc.summary.overview.lines().map(str::trim).filter(|p| !p.is_empty()) {
+        let _ = writeln!(md, "{}\n", text(para));
+    }
     let points: Vec<String> = doc.summary.key_points.iter().map(|p| text(p)).collect();
-    callout(&mut md, "tip", t.key_points, &points);
-    // Folded, so the one line and the key points stay the first things a reader sees.
-    let _ = writeln!(md, "\n> [!abstract]- {}", t.overview);
-    let paragraphs: Vec<String> = doc.summary.overview.lines().map(str::trim).filter(|p| !p.is_empty()).map(text).collect();
-    let _ = writeln!(md, "{}", paragraphs.iter().map(|p| format!("> {p}")).collect::<Vec<_>>().join("\n>\n"));
+    callout(&mut md, "tip", t.key_points, &points, false);
 
     if !doc.summary.relations.is_empty() {
-        let _ = writeln!(md, "\n## {}\n\n{}", t.concept_map, concept_map(doc.summary));
+        let _ = writeln!(md, "\n> [!example]- {}", t.concept_map);
+        let _ = writeln!(md, "{}", quoted(&concept_map(doc.summary)));
     }
     for c in &doc.summary.comparisons {
-        let _ = writeln!(md, "\n## {}: {}\n", t.comparison, text(&c.title));
-        let cells = |items: Vec<&str>| format!("| {} |", items.into_iter().map(text).collect::<Vec<_>>().join(" | "));
+        let _ = writeln!(md, "\n> [!example]- {}: {}", t.comparison, text(&c.title));
+        let cells = |items: Vec<&str>| format!("> | {} |", items.into_iter().map(text).collect::<Vec<_>>().join(" | "));
         let _ = writeln!(md, "{}", cells(std::iter::once("").chain(c.subjects.iter().map(String::as_str)).collect()));
-        let _ = writeln!(md, "|{}", " --- |".repeat(c.subjects.len() + 1));
+        let _ = writeln!(md, "> |{}", " --- |".repeat(c.subjects.len() + 1));
         for row in &c.rows {
             let _ = writeln!(md, "{}", cells(std::iter::once(row.aspect.as_str()).chain(row.values.iter().map(String::as_str)).collect()));
         }
@@ -311,30 +318,22 @@ fn markdown(doc: &Document, key: &str, images: &str, carried: &Carried) -> Strin
     if !doc.summary.concepts.is_empty() {
         let terms: Vec<String> = doc.summary.concepts.iter().map(|c| format!("**{}**: {}", text(&c.name), text(&c.meaning))).collect();
         md.push('\n');
-        callout(&mut md, "info", t.glossary, &terms);
+        callout(&mut md, "info", t.glossary, &terms, true);
     }
 
-    let _ = writeln!(md, "\n## {}\n", t.contents);
-    let headings: Vec<String> = doc.sections.iter().enumerate().map(|(i, s)| section_heading(i, &s.chapter.title)).collect();
+    let _ = writeln!(md, "\n## {}", t.contents);
     for (i, s) in doc.sections.iter().enumerate() {
         let c = &s.chapter;
-        let title = heading_text(&c.title);
-        let shown = if title.is_empty() { format!("{}.", i + 1) } else { title };
-        let time = if url.is_some() { format!(" · {}", at(c.start, clock(c.start))) } else { String::new() };
-        let _ = writeln!(md, "{}. [[#{}|{shown}]]{time}", i + 1, headings[i]);
-    }
-
-    for (s, heading) in doc.sections.iter().zip(&headings) {
-        let c = &s.chapter;
-        let _ = writeln!(md, "\n## {heading}\n");
+        let _ = writeln!(md, "\n### {}\n", section_heading(i, &c.title));
         let _ = writeln!(md, "{}\n", at(c.start, format!("▶ {}", span(c.start, c.end))));
-        let _ = writeln!(md, "{}\n", text(&c.summary));
-        let points: Vec<String> = c.key_points.iter().map(|p| text(p)).collect();
-        callout(&mut md, "tip", t.key_points, &points);
+        let mut body = vec![text(&c.summary), String::new(), format!("**{}**", t.key_points)];
+        body.extend(c.key_points.iter().map(|p| format!("- {}", text(p))));
         let images: Vec<String> = s.frames.iter().map(|f| format!("![[{images}/{}|320]]", file_name(&f.path))).collect();
         if !images.is_empty() {
-            let _ = writeln!(md, "\n{}", images.join(" "));
+            body.push(String::new());
+            body.push(images.join(" "));
         }
+        let _ = writeln!(md, "> [!note]- {}\n{}", t.details, quoted(&body.join("\n")));
     }
 
     // Folded, so the summary stays the first thing a reader sees.
@@ -411,18 +410,14 @@ mod tests {
             "---\ntitle: \"caniuse 사용법\"\nytdoc: \"JdgjWfve1DY\"\nsource: \"https://www.youtube.com/watch?v=JdgjWfve1DY\""
         ));
         assert!(md.contains("uploaded: 2015-12-13\n"));
-        assert!(md.contains("1. [[#1. 브라우저 호환성|브라우저 호환성]] · [0:00](https://www.youtube.com/watch?v=JdgjWfve1DY&t=0s)\n"));
-        assert!(md.contains("\n## 1. 브라우저 호환성\n\n[▶ 0:00–1:47](https://www.youtube.com/watch?v=JdgjWfve1DY&t=0s)\n\n요약 문장\n\n> [!tip] 핵심 포인트\n> - 핵심\n\n![[YouTube 요약/첨부/JdgjWfve1DY/0001.jpg|320]]\n"));
-        assert!(!md.contains("[30s]") && !md.contains("[0:30]"), "no per-image timestamp line");
-        let top =
-            "> [!summary]\n> 한 줄 요약\n\n> [!tip] 핵심 포인트\n> - 전체 핵심\n\n> [!abstract]- 전체 요약\n> 첫 문단\n>\n> 둘째 문단\n";
-        assert!(md.contains(top), "{md}");
-        assert!(!md.contains("## 전체 요약") && !md.contains("## 부록"));
-        assert!(md.contains("```mermaid\nflowchart LR\n  n0[\"프로세스\"]\n  n1[\"스레드\"]\n  n0 -->|\"여러 개 품음\"| n1\n```"));
-        assert!(
-            md.contains("## 비교: 프로세스 vs 스레드\n\n|  | 프로세스 | 스레드 |\n| --- | --- | --- |\n| 메모리 | 따로 | 공유 \\| 일부 |")
-        );
-        assert!(md.contains("> [!info] 용어 정리\n> - **프로세스**: 실행 중인 \"프로그램\""));
+        let top = "> [!summary]\n> 한 줄 요약\n\n## 전체 요약\n\n첫 문단\n\n둘째 문단\n\n> [!tip] 핵심 포인트\n> - 전체 핵심\n";
+        assert!(md.contains(top), "the summary is shown first: {md}");
+        let chapter = "\n### 1. 브라우저 호환성\n\n[▶ 0:00–1:47](https://www.youtube.com/watch?v=JdgjWfve1DY&t=0s)\n\n> [!note]- 자세히\n> 요약 문장\n>\n> **핵심 포인트**\n> - 핵심\n>\n> ![[YouTube 요약/첨부/JdgjWfve1DY/0001.jpg|320]]\n";
+        assert!(md.contains(chapter), "chapter details are folded: {md}");
+        assert!(md.contains("\n> [!example]- 개념 관계도\n> ```mermaid\n> flowchart LR\n>   n0[\"프로세스\"]\n>   n1[\"스레드\"]\n>   n0 -->|\"여러 개 품음\"| n1\n> ```"));
+        assert!(md.contains("\n> [!example]- 비교: 프로세스 vs 스레드\n> |  | 프로세스 | 스레드 |\n> | --- | --- | --- |\n> | 메모리 | 따로 | 공유 \\| 일부 |"));
+        assert!(md.contains("> [!info]- 용어 정리\n> - **프로세스**: 실행 중인 \"프로그램\""));
+        assert!(!md.contains("[[#") && !md.contains("## 부록"));
         assert!(md.contains("\n> [!quote]- 부록: 전체 받아쓰기\n> - [1:05](https://www.youtube.com/watch?v=JdgjWfve1DY&t=65s) 말한 내용"));
         assert_eq!(std::fs::read(vault.path().join("YouTube 요약/첨부/JdgjWfve1DY/0001.jpg")).unwrap(), b"jpg");
     }
@@ -450,18 +445,18 @@ mod tests {
     }
 
     #[test]
-    fn images_sit_on_one_line_after_the_key_points() {
+    fn images_sit_on_one_line_inside_the_folded_details() {
         let (meta, summary, mut sections, transcript) = sample("t");
         sections[0].frames.push(Frame { time: 60.0, path: "frames/0002.jpg".into(), hash: 1 });
         let lang: LangCode = "ko".parse().unwrap();
         let doc =
             Document { meta: &meta, summary: &summary, sections: &sections, transcript: &transcript, lang: &lang, translated_from: None };
         let md = markdown(&doc, "JdgjWfve1DY", "img", &Carried::default());
-        assert!(md.contains("> - 핵심\n\n![[img/0001.jpg|320]] ![[img/0002.jpg|320]]\n"), "{md}");
+        assert!(md.contains("> - 핵심\n>\n> ![[img/0001.jpg|320]] ![[img/0002.jpg|320]]\n"), "{md}");
     }
 
     #[test]
-    fn every_contents_link_targets_a_heading_line() {
+    fn chapter_headings_stay_linkable() {
         let (meta, summary, mut sections, transcript) = sample("t");
         for title in ["C# | 배열: [기초]", "100% ^승^ \\역슬래시", "###", "평범한 제목"] {
             let mut s = sections[0].clone();
@@ -472,24 +467,23 @@ mod tests {
         let doc =
             Document { meta: &meta, summary: &summary, sections: &sections, transcript: &transcript, lang: &lang, translated_from: None };
         let md = markdown(&doc, "JdgjWfve1DY", "img", &Carried::default());
-        let targets: Vec<&str> = md.lines().filter_map(|l| l.split_once("[[#")?.1.split_once('|')).map(|(t, _)| t).collect();
-        assert_eq!(targets.len(), sections.len());
-        for target in targets {
-            assert!(md.lines().any(|l| l.strip_prefix("## ") == Some(target)), "no heading for {target:?}");
-            assert!(!target.contains(['#', '|', '^', ':', '%', '[', ']', '\\']));
+        let headings: Vec<&str> = md.lines().filter_map(|l| l.strip_prefix("### ")).collect();
+        assert_eq!(headings.len(), sections.len());
+        for h in headings {
+            assert!(!h.contains(['#', '|', '^', ':', '%', '[', ']', '\\']), "{h:?} breaks [[#heading]] links");
         }
-        assert!(md.contains("## 2. C 배열 기초\n"));
+        assert!(md.contains("### 2. C 배열 기초\n"));
     }
 
     #[test]
-    fn contents_have_no_time_link_without_a_url() {
+    fn chapter_time_is_plain_without_a_url() {
         let (mut meta, summary, sections, transcript) = sample("t");
         meta.origin = Origin::LocalFile { file_name: "a.mp4".into() };
         let lang: LangCode = "ko".parse().unwrap();
         let doc =
             Document { meta: &meta, summary: &summary, sections: &sections, transcript: &transcript, lang: &lang, translated_from: None };
         let md = markdown(&doc, "a.mp4", "img", &Carried::default());
-        assert!(md.contains("1. [[#1. 브라우저 호환성|브라우저 호환성]]\n"));
+        assert!(md.contains("### 1. 브라우저 호환성\n\n▶ 0:00–1:47\n"));
     }
 
     const EDITED: &str = "---
