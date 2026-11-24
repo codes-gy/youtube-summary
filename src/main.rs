@@ -54,6 +54,9 @@ enum Command {
     Serve {
         #[arg(long, default_value_t = 8000)]
         port: u16,
+        /// 웹 페이지로 올릴 수 있는 영상 파일의 최대 크기(MB)
+        #[arg(long, value_name = "MB", env = "YTDOC_MAX_UPLOAD_MB", default_value_t = web::DEFAULT_MAX_UPLOAD_MB)]
+        max_upload_mb: u64,
         #[command(flatten)]
         common: Common,
     },
@@ -107,7 +110,9 @@ impl Common {
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
-        Some(Command::Serve { port, common }) => common.options(None).and_then(|opts| web::serve(port, opts)),
+        Some(Command::Serve { port, max_upload_mb, common }) => {
+            common.options(None).and_then(|opts| web::serve(port, max_upload_mb, opts))
+        }
         None => cli.common.options(cli.output).and_then(|opts| run_cli(&cli.source.expect("clap requires it"), opts)),
     };
     if let Err(err) = result {

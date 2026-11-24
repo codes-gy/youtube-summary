@@ -29,7 +29,7 @@ PDF에 들어가는 내용은 다음과 같습니다.
 
 macOS, Linux, Windows에서 쓸 수 있습니다. 필요한 프로그램은 다음과 같습니다.
 
-- 빌드할 때만 필요: [Rust](https://rustup.rs/), [CMake](https://cmake.org/), C/C++ 컴파일러, LLVM(clang). whisper.cpp를 함께 빌드하기 때문입니다.
+- 소스에서 빌드할 때만 필요: [Rust](https://rustup.rs/), [CMake](https://cmake.org/), C/C++ 컴파일러, LLVM(clang). whisper.cpp를 함께 빌드하기 때문입니다. [미리 빌드한 파일](#미리-빌드한-파일-받기)을 쓰면 필요 없습니다.
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp): YouTube 영상을 받습니다. 내 컴퓨터의 파일만 쓴다면 필요 없습니다.
 - [deno](https://deno.com/): yt-dlp가 YouTube 영상을 받을 때 필요한 JavaScript 실행기입니다. 없으면 `HTTP Error 403`으로 내려받기가 실패합니다.
 - [ffmpeg](https://ffmpeg.org/)
@@ -65,6 +65,22 @@ yt-dlp는 배포판 패키지가 오래된 경우가 많으니 [yt-dlp 설치 �
 
 ## 설치
 
+### 미리 빌드한 파일 받기
+
+[Releases](https://github.com/codes-gy/youtube-summary/releases) 페이지에서 내 컴퓨터에 맞는 파일을 받아 압축을 풉니다. 안에 든 `ytdoc`(Windows는 `ytdoc.exe`)을 `PATH`에 있는 폴더로 옮기면 어디서든 `ytdoc` 명령을 쓸 수 있습니다. 이 경우 Rust, CMake, LLVM은 필요 없고, 위 [준비물](#준비물)의 yt-dlp, deno, ffmpeg, 글꼴, Claude만 있으면 됩니다.
+
+| 파일 | 컴퓨터 |
+| --- | --- |
+| `ytdoc-<버전>-x86_64-pc-windows-msvc.zip` | Windows (64비트 Intel/AMD) |
+| `ytdoc-<버전>-aarch64-apple-darwin.tar.gz` | Apple Silicon Mac (M1 이후) |
+| `ytdoc-<버전>-x86_64-unknown-linux-gnu.tar.gz` | Linux (64비트 Intel/AMD, glibc) |
+
+받은 파일이 손상되지 않았는지는 같은 페이지의 `SHA256SUMS.txt`로 확인할 수 있습니다. macOS에서 "확인되지 않은 개발자" 경고가 나오면 `xattr -d com.apple.quarantine ytdoc`을 실행합니다(서명하지 않은 파일이기 때문입니다). Intel Mac이나 다른 CPU는 아래처럼 소스에서 빌드합니다.
+
+릴리스 파일은 저장소에 `v`로 시작하는 태그(예: `v0.2.0`)를 올리면 GitHub Actions(`.github/workflows/release.yml`)가 만들어 올립니다. 아직 릴리스가 없다면 소스에서 빌드하세요.
+
+### 소스에서 빌드하기
+
 저장소를 내려받은 폴더에서 실행합니다.
 
 ```sh
@@ -90,7 +106,7 @@ ytdoc serve
 
 작업은 한 번에 하나씩 처리합니다. 진행 중에 다른 작업을 넣으면 앞 작업이 끝난 뒤 시작합니다. 서버를 끄려면 터미널에서 `Ctrl+C`를 누릅니다.
 
-포트를 바꾸려면 `--port`를 씁니다(기본값 `8000`). `--whisper-model`, `--max-images`, `--summarizer`, `--cache-dir`, `--obsidian`도 아래 명령줄과 같은 뜻으로 쓸 수 있습니다.
+포트를 바꾸려면 `--port`를 씁니다(기본값 `8000`). 올릴 수 있는 파일 크기는 기본 4096MB까지이고, `--max-upload-mb`(또는 환경 변수 `YTDOC_MAX_UPLOAD_MB`)로 바꿉니다. 더 큰 파일은 올리는 도중에 멈추고 받은 부분은 지웁니다. `--whisper-model`, `--max-images`, `--summarizer`, `--cache-dir`, `--obsidian`도 아래 명령줄과 같은 뜻으로 쓸 수 있습니다.
 
 ## 명령줄로 쓰기
 
@@ -156,6 +172,8 @@ ytdoc "https://www.youtube.com/watch?v=JdgjWfve1DY" --obsidian
 
 `auto`는 `ANTHROPIC_API_KEY`가 있으면 `api`를, 없으면 `claude-cli`를 씁니다. 번역도 요약과 같은 방식으로 Claude를 씁니다.
 
+`api` 방식은 요청이 많아 거절되거나(429) 서버가 붐비거나(529) 서버 오류(5xx)가 나면 최대 4번까지 점점 길게 기다렸다가 다시 시도합니다. 서버가 `retry-after`로 기다릴 시간을 알려 주면 그만큼 기다립니다(최대 5분). `claude-cli` 방식은 `claude -p` 한 번이 15분 안에 끝나지 않으면 멈추고 오류로 끝냅니다. 시간은 환경 변수 `YTDOC_CLAUDE_TIMEOUT_SECS`(초)로 바꿉니다.
+
 `api` 방식은 `claude-opus-5-5` 모델을 씁니다. 정확한 금액은 [Claude Console](https://console.anthropic.com/)의 사용량에서 확인하세요. 같은 영상을 다시 실행하면 저장된 요약을 쓰므로 추가 요금이 없습니다.
 
 ## 시간이 얼마나 걸리나요
@@ -184,7 +202,7 @@ Apple M1에서 6분 10초짜리 한국어 영상([예시](examples/))을 처리�
 - 말이 없는 영상(음악, 무성 영상)은 요약할 내용이 없습니다.
 - 내 컴퓨터의 파일로 만든 PDF에는 YouTube 링크가 없습니다. 시간은 그대로 표시됩니다.
 - 번역은 Claude를 한 번 더 쓰므로 `api` 방식에서는 요금이 더 나옵니다.
-- 웹 화면의 작업 목록은 서버를 끄면 사라집니다. 만든 PDF와 중간 결과는 `.ytdoc_cache/`에 남습니다.
+- 웹 화면의 작업 목록은 서버를 끄면 사라집니다. 만든 PDF와 중간 결과는 `.ytdoc_cache/`에 남습니다. 웹 화면에서 만든 PDF는 `.ytdoc_cache/outputs/<작업 번호>.pdf`에 저장되고, 작업 번호는 시각으로 정하므로 서버를 다시 켜도 앞서 만든 PDF를 덮어쓰지 않습니다.
 - 받아쓰기는 Whisper 모델의 정확도를 따릅니다. 고유 명사는 틀릴 수 있습니다.
 - 로그인이 필요한 영상, 비공개 영상은 받을 수 없습니다.
 - 영상 내려받기는 YouTube 이용 약관과 저작권을 지키는 범위에서만 하세요. 만든 PDF를 다른 사람에게 나눠 줄 때는 원본 영상의 라이선스를 확인하세요.

@@ -155,6 +155,8 @@
 </main>
 
 <script>
+// Filled in by the server from `ytdoc serve --max-upload-mb`.
+const MAX_UPLOAD_BYTES = Number("__MAX_UPLOAD_BYTES__");
 const DOING = {
   download: "영상을 가져오는 중",
   audio: "영상에서 소리를 꺼내는 중",
@@ -235,6 +237,9 @@ $("form").onsubmit = async (e) => {
     form.append("url", url);
   } else if (!file) {
     return showError($("form-error"), "올릴 파일을 골라 주세요.");
+  } else if (MAX_UPLOAD_BYTES > 0 && file.size > MAX_UPLOAD_BYTES) {
+    const mb = Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024));
+    return showError($("form-error"), `파일이 너무 커요. 최대 ${mb} MB까지 올릴 수 있어요 (ytdoc serve --max-upload-mb로 바꿀 수 있어요).`);
   }
   if ($("translate").checked) form.append("translate", $("lang").value);
   if (mode === "upload") form.append("file", file);
